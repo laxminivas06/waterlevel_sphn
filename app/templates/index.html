@@ -1,0 +1,394 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Smart Water Tank Level Monitor</title>
+  <link rel="stylesheet" href="/static/css/style.css">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+</head>
+<body>
+  <div class="app-container">
+    <!-- Header -->
+    <header class="app-header">
+      <div class="header-brand">
+        <div class="brand-icon">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M12 2.69l5.66 5.66a8 8 0 1 1-11.31 0z"></path>
+          </svg>
+        </div>
+        <div>
+          <h1>HydroSense IoT</h1>
+          <p class="subtitle">Smart Water Tank Level Monitoring System</p>
+        </div>
+      </div>
+      <div class="header-status">
+        <div class="status-pill" id="device-status-badge">
+          <span class="status-indicator" id="status-dot"></span>
+          <span id="device-status-text">Checking device...</span>
+        </div>
+        <div class="last-seen" id="last-seen-text">Last ping: --</div>
+        <button id="btn-open-settings" class="btn btn-secondary btn-sm" title="Configure Tank Settings">
+          ⚙ Settings
+        </button>
+      </div>
+    </header>
+
+    <!-- Main Grid -->
+    <main class="dashboard-grid">
+      <!-- Left Column: SVG Tank Visualizer -->
+      <section class="card tank-card">
+        <div class="card-header">
+          <h2>Live Tank Level</h2>
+          <span class="badge" id="tank-state-badge">Normal</span>
+        </div>
+        <div class="tank-visual-wrapper">
+          <svg id="tank-svg" class="tank-svg" viewBox="0 0 240 320" xmlns="http://www.w3.org/2000/svg">
+            <defs>
+              <!-- Dynamic Linear Gradients for States -->
+              <linearGradient id="grad-normal" x1="0%" y1="0%" x2="0%" y2="100%">
+                <stop offset="0%" stop-color="#10b981" />
+                <stop offset="100%" stop-color="#059669" />
+              </linearGradient>
+              <linearGradient id="grad-low" x1="0%" y1="0%" x2="0%" y2="100%">
+                <stop offset="0%" stop-color="#fbbf24" />
+                <stop offset="100%" stop-color="#d97706" />
+              </linearGradient>
+              <linearGradient id="grad-critical" x1="0%" y1="0%" x2="0%" y2="100%">
+                <stop offset="0%" stop-color="#f87171" />
+                <stop offset="100%" stop-color="#dc2626" />
+              </linearGradient>
+              <linearGradient id="grad-filling" x1="0%" y1="0%" x2="0%" y2="100%">
+                <stop offset="0%" stop-color="#38bdf8" />
+                <stop offset="100%" stop-color="#1d4ed8" />
+              </linearGradient>
+              <linearGradient id="tank-glass-reflect" x1="0%" y1="0%" x2="100%" y2="0%">
+                <stop offset="0%" stop-color="#ffffff" stop-opacity="0.12" />
+                <stop offset="15%" stop-color="#ffffff" stop-opacity="0.03" />
+                <stop offset="85%" stop-color="#000000" stop-opacity="0.05" />
+                <stop offset="100%" stop-color="#ffffff" stop-opacity="0.08" />
+              </linearGradient>
+              <clipPath id="tank-clip">
+                <rect x="35" y="30" width="170" height="250" rx="18" ry="18" />
+              </clipPath>
+            </defs>
+
+            <!-- Tank Top Sensor Cap -->
+            <rect x="80" y="14" width="80" height="16" rx="5" fill="#334155" stroke="#475569" stroke-width="2" />
+            <circle id="sensor-beacon" cx="120" cy="22" r="3.5" fill="#10b981" />
+
+            <!-- Tank Shell Background -->
+            <rect x="35" y="30" width="170" height="250" rx="18" fill="#111827" stroke="#334155" stroke-width="3" />
+
+            <!-- Clipped Liquid Region -->
+            <g clip-path="url(#tank-clip)">
+              <rect id="liquid-body" x="35" y="155" width="170" height="125" fill="url(#grad-normal)" />
+              <g id="wave-container" transform="translate(0, 155)">
+                <path class="wave wave-back" d="M-100,0 C-50,-8 0,8 50,0 C100,-8 150,8 200,0 C250,-8 300,8 350,0 L350,50 L-100,50 Z" />
+                <path class="wave wave-front" d="M-100,0 C-60,8 -20,-8 20,0 C60,8 100,-8 140,0 C180,8 220,-8 260,0 C300,8 340,-8 380,0 L380,50 L-100,50 Z" />
+              </g>
+              <g id="inflow-stream" class="inflow-effect" opacity="0">
+                <line x1="120" y1="30" x2="120" y2="280" stroke="#38bdf8" stroke-width="4" stroke-dasharray="8 6" class="inflow-line" />
+              </g>
+              <rect x="35" y="30" width="170" height="250" fill="url(#tank-glass-reflect)" pointer-events="none" />
+            </g>
+
+            <!-- Graduation Markings -->
+            <g class="tank-graduation" stroke="#64748b" stroke-width="1.5">
+              <line x1="26" y1="30" x2="35" y2="30" />
+              <text x="22" y="34" font-size="9" fill="#94a3b8" text-anchor="end">100%</text>
+              <line x1="28" y1="92.5" x2="35" y2="92.5" />
+              <text x="22" y="96" font-size="8" fill="#64748b" text-anchor="end">75%</text>
+              <line x1="26" y1="155" x2="35" y2="155" />
+              <text x="22" y="159" font-size="9" fill="#94a3b8" text-anchor="end">50%</text>
+              <line x1="28" y1="217.5" x2="35" y2="217.5" />
+              <text x="22" y="221" font-size="8" fill="#64748b" text-anchor="end">25%</text>
+              <line x1="26" y1="280" x2="35" y2="280" />
+              <text x="22" y="284" font-size="9" fill="#94a3b8" text-anchor="end">0%</text>
+            </g>
+
+            <!-- Base Support -->
+            <rect x="70" y="282" width="100" height="12" rx="3" fill="#334155" stroke="#475569" stroke-width="1.5" />
+            <rect x="55" y="294" width="130" height="6" rx="2" fill="#1e293b" />
+
+            <!-- Center Overlay Texts -->
+            <g class="tank-readouts" text-anchor="middle">
+              <text id="tank-text-pct" x="120" y="145" class="tank-readout-pct">--%</text>
+              <text id="tank-text-litres" x="120" y="172" class="tank-readout-sub">-- L</text>
+              <text id="tank-text-height" x="120" y="192" class="tank-readout-cm">-- cm depth</text>
+              <g id="tank-badge-filling" opacity="0">
+                <rect x="75" y="206" width="90" height="20" rx="10" fill="#0284c7" />
+                <text x="120" y="220" font-size="10" font-weight="bold" fill="#ffffff">▲ INFLOW</text>
+              </g>
+            </g>
+          </svg>
+        </div>
+      </section>
+
+      <!-- Right Column: Metric Cards & Today's Summary -->
+      <section class="metrics-column">
+        <!-- 4 Metric Cards -->
+        <div class="metrics-grid">
+          <div class="metric-card">
+            <div class="metric-title">Current Level</div>
+            <div class="metric-value" id="card-pct">--%</div>
+            <div class="metric-bar-container">
+              <div class="metric-bar-fill" id="card-pct-bar" style="width: 0%;"></div>
+            </div>
+            <div class="metric-subtitle" id="card-pct-sub">Awaiting data</div>
+          </div>
+
+          <div class="metric-card">
+            <div class="metric-title">Water Volume</div>
+            <div class="metric-value" id="card-litres">-- L</div>
+            <div class="metric-subtitle" id="card-capacity">Capacity: -- L</div>
+            <div class="metric-meta" id="card-height">Depth: -- cm</div>
+          </div>
+
+          <div class="metric-card">
+            <div class="metric-title">Remaining Capacity</div>
+            <div class="metric-value" id="card-headroom">-- L</div>
+            <div class="metric-subtitle" id="card-headroom-pct">--% available</div>
+            <div class="metric-meta" id="card-distance">Air Gap: -- cm</div>
+          </div>
+
+          <div class="metric-card">
+            <div class="metric-title">ESP32 Device</div>
+            <div class="metric-value" id="card-device-status">Checking</div>
+            <div class="metric-subtitle" id="card-device-id">ID: --</div>
+            <div class="metric-meta" id="card-ping-time">Last ping: --</div>
+          </div>
+        </div>
+
+        <!-- Today's Summary Scorecard -->
+        <div class="card summary-card">
+          <div class="card-header">
+            <h3>Today's Summary</h3>
+            <span class="badge" id="today-date-badge">--</span>
+          </div>
+          <div class="summary-grid">
+            <div class="summary-item">
+              <div class="summary-label">Min Level</div>
+              <div class="summary-val" id="summary-min">--%</div>
+              <div class="summary-time" id="summary-min-time">--:--</div>
+            </div>
+            <div class="summary-item">
+              <div class="summary-label">Max Level</div>
+              <div class="summary-val" id="summary-max">--%</div>
+              <div class="summary-time" id="summary-max-time">--:--</div>
+            </div>
+            <div class="summary-item">
+              <div class="summary-label">Average Level</div>
+              <div class="summary-val" id="summary-avg">--%</div>
+              <div class="summary-time">Day average</div>
+            </div>
+            <div class="summary-item">
+              <div class="summary-label">Net Water Change</div>
+              <div class="summary-val" id="summary-net">-- L</div>
+              <div class="summary-time" id="summary-net-desc">--</div>
+            </div>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <!-- Navigation Tabs for Analytics, Comparison, Backups -->
+    <nav class="view-tabs">
+      <button class="tab-btn active" data-tab="tab-analytics">15-Day History & Analytics</button>
+      <button class="tab-btn" data-tab="tab-compare">Day-to-Day Comparison</button>
+      <button class="tab-btn" data-tab="tab-backup">Backup Management</button>
+    </nav>
+
+    <!-- Tab 1: 15-Day Analytics Section -->
+    <section class="tab-content active" id="tab-analytics">
+      <div class="card analytics-card">
+        <div class="card-header analytics-header">
+          <div>
+            <h2>Water Level Trends & History</h2>
+            <p class="subtitle">Inspect sensor readings across the 15-day retention window</p>
+          </div>
+          <div class="filter-controls">
+            <div class="quick-pills">
+              <button class="pill-btn active" data-range="today">Today</button>
+              <button class="pill-btn" data-range="yesterday">Yesterday</button>
+              <button class="pill-btn" data-range="7days">Last 7 Days</button>
+            </div>
+            <input type="date" id="history-date-picker" class="input-control">
+          </div>
+        </div>
+
+        <div class="chart-container">
+          <canvas id="analytics-chart"></canvas>
+        </div>
+
+        <div class="history-stats-bar" id="history-stats-bar">
+          <div class="stat-box"><strong>Min:</strong> <span id="hist-min">--%</span></div>
+          <div class="stat-box"><strong>Max:</strong> <span id="hist-max">--%</span></div>
+          <div class="stat-box"><strong>Avg:</strong> <span id="hist-avg">--%</span></div>
+          <div class="stat-box"><strong>Readings:</strong> <span id="hist-count">0</span></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Tab 2: Day-to-Day Comparison Section -->
+    <section class="tab-content" id="tab-compare">
+      <div class="card compare-card">
+        <div class="card-header compare-header">
+          <div>
+            <h2>Day-to-Day Water Level Comparison</h2>
+            <p class="subtitle">Compare 24-hour water fluctuation curves side-by-side</p>
+          </div>
+          <div class="compare-selectors">
+            <div class="selector-group">
+              <label>Date 1 (Primary):</label>
+              <input type="date" id="compare-date1" class="input-control">
+            </div>
+            <span class="vs-divider">vs</span>
+            <div class="selector-group">
+              <label>Date 2 (Baseline):</label>
+              <input type="date" id="compare-date2" class="input-control">
+            </div>
+            <button id="btn-run-compare" class="btn btn-primary">Compare</button>
+          </div>
+        </div>
+
+        <!-- Comparison Summary Cards -->
+        <div class="comparison-stats-grid" id="compare-stats-grid">
+          <div class="compare-box">
+            <div class="compare-metric-title">Average Level</div>
+            <div class="compare-vals">
+              <span id="cmp-avg1" class="c-val1">--%</span>
+              <span class="c-arrow">vs</span>
+              <span id="cmp-avg2" class="c-val2">--%</span>
+            </div>
+            <div class="compare-delta" id="cmp-avg-delta">--</div>
+          </div>
+          <div class="compare-box">
+            <div class="compare-metric-title">Minimum Level</div>
+            <div class="compare-vals">
+              <span id="cmp-min1" class="c-val1">--%</span>
+              <span class="c-arrow">vs</span>
+              <span id="cmp-min2" class="c-val2">--%</span>
+            </div>
+            <div class="compare-delta" id="cmp-min-delta">--</div>
+          </div>
+          <div class="compare-box">
+            <div class="compare-metric-title">Maximum Level</div>
+            <div class="compare-vals">
+              <span id="cmp-max1" class="c-val1">--%</span>
+              <span class="c-arrow">vs</span>
+              <span id="cmp-max2" class="c-val2">--%</span>
+            </div>
+            <div class="compare-delta" id="cmp-max-delta">--</div>
+          </div>
+          <div class="compare-box">
+            <div class="compare-metric-title">Net Daily Change</div>
+            <div class="compare-vals">
+              <span id="cmp-net1" class="c-val1">-- L</span>
+              <span class="c-arrow">vs</span>
+              <span id="cmp-net2" class="c-val2">-- L</span>
+            </div>
+            <div class="compare-delta" id="cmp-net-delta">--</div>
+          </div>
+        </div>
+
+        <div class="chart-container">
+          <canvas id="comparison-chart"></canvas>
+        </div>
+      </div>
+    </section>
+
+    <!-- Tab 3: Backup Management Section -->
+    <section class="tab-content" id="tab-backup">
+      <div class="card backup-card">
+        <div class="card-header">
+          <div>
+            <h2>Backup Management</h2>
+            <p class="subtitle">Automated SQLite telemetry backups & on-demand exports</p>
+          </div>
+          <div class="backup-trigger-box">
+            <select id="backup-format-select" class="input-control select-control">
+              <option value="both">Both (CSV & JSON)</option>
+              <option value="csv">CSV Readings Only</option>
+              <option value="json">JSON Full Export</option>
+            </select>
+            <button id="btn-create-backup" class="btn btn-primary">⬇ Create Manual Backup</button>
+          </div>
+        </div>
+
+        <div class="backup-table-wrapper">
+          <table class="data-table" id="backup-table">
+            <thead>
+              <tr>
+                <th>Created At (UTC)</th>
+                <th>Filename</th>
+                <th>Format</th>
+                <th>Type</th>
+                <th>Record Count</th>
+                <th>File Size</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody id="backup-table-body">
+              <tr>
+                <td colspan="7" class="text-center">Loading backup logs...</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- Tank Settings Modal -->
+    <div class="modal-backdrop" id="settings-modal" style="display: none;">
+      <div class="modal-card">
+        <div class="modal-header">
+          <h3>Tank Dimensions & Settings</h3>
+          <button id="btn-close-settings" class="modal-close">&times;</button>
+        </div>
+        <form id="settings-form" class="settings-form">
+          <div class="form-grid">
+            <div class="form-group">
+              <label for="set-height">Tank Height (cm)</label>
+              <input type="number" step="0.1" id="set-height" required class="input-control">
+            </div>
+            <div class="form-group">
+              <label for="set-offset">Sensor Offset (cm)</label>
+              <input type="number" step="0.1" id="set-offset" required class="input-control">
+            </div>
+            <div class="form-group">
+              <label for="set-capacity">Capacity (Litres)</label>
+              <input type="number" step="1" id="set-capacity" required class="input-control">
+            </div>
+            <div class="form-group">
+              <label for="set-timeout">Offline Timeout (sec)</label>
+              <input type="number" step="1" id="set-timeout" required class="input-control">
+            </div>
+            <div class="form-group">
+              <label for="set-low">Low Alert (%)</label>
+              <input type="number" step="0.1" id="set-low" required class="input-control">
+            </div>
+            <div class="form-group">
+              <label for="set-crit">Critical Alert (%)</label>
+              <input type="number" step="0.1" id="set-crit" required class="input-control">
+            </div>
+          </div>
+          <div class="modal-footer">
+            <button type="button" id="btn-cancel-settings" class="btn btn-secondary">Cancel</button>
+            <button type="submit" class="btn btn-primary">Save Settings</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <!-- Notification Toast -->
+  <div id="toast" class="toast-notification"></div>
+
+  <!-- Scripts -->
+  <script src="/static/js/tank_visualizer.js"></script>
+  <script src="/static/js/analytics.js"></script>
+  <script src="/static/js/dashboard.js"></script>
+</body>
+</html>
+
