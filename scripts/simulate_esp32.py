@@ -24,8 +24,8 @@ except ImportError:
     HAS_REQUESTS = False
 
 
-DEFAULT_URL = "http://127.0.0.1:5000/api/water-level"
-DEFAULT_DEVICE_ID = "esp32_tank_01"
+DEFAULT_URL = "http://127.0.0.1:5000/api/v1/telemetry"
+DEFAULT_DEVICE_ID = "SV_BLOCK_OVER_TANK"
 DEFAULT_API_KEY = "water_secret_key_2026"
 DEFAULT_TANK_HEIGHT = 200.0     # cm
 DEFAULT_SENSOR_OFFSET = 15.0    # cm
@@ -259,6 +259,12 @@ def parse_arguments(args=None) -> argparse.Namespace:
         help="HTTP request timeout in seconds (default: 10.0)",
     )
     parser.add_argument(
+        "--tanks-api",
+        action="store_true",
+        default=False,
+        help="Use GET /api/tanks?tanks=DEVICE_ID:<val> format matching hardware snippet",
+    )
+    parser.add_argument(
         "--quiet",
         "-q",
         action="store_true",
@@ -323,13 +329,38 @@ def run_simulation(args: argparse.Namespace) -> int:
                     time.sleep(args.interval)
                 continue
 
-            status_code, resp_data = send_telemetry(
-                url=args.url,
-                payload=payload,
-                api_key=api_key_to_use,
-                auth_mode=args.auth_mode,
-                timeout=args.timeout,
-            )
+            if args.tanks_api:
+                scaled_val = cur_distance * 1.81
+                tanks_url = args.url
+                if "/api/water-level" in tanks_url:
+                    tanks_url = tanks_url.replace("/api/water-level", "/api/tanks")
+                sep = "&" if "?" in tanks_url else "?"
+                target_get_url = f"{tanks_url}{sep}tanks={args.device_id}:{scaled_val:.2f}&distance={cur_distance:.2f}"
+                if HAS_REQUESTS:
+                    try:
+                        resp = requests.get(target_get_url, timeout=args.timeout)
+                        status_code = resp.status_code
+                        try:
+                            resp_data = resp.json()
+                        except ValueError:
+                            resp_data = {"raw_text": resp.text}
+                    except requests.RequestException as e:
+                        status_code, resp_data = 0, {"error": f"Request failed: {e}"}
+                else:
+                    try:
+                        with urllib.request.urlopen(target_get_url, timeout=args.timeout) as response:
+                            status_code = response.getcode()
+                            resp_data = json.loads(response.read().decode("utf-8"))
+                    except Exception as e:
+                        status_code, resp_data = 0, {"error": f"Request failed: {e}"}
+            else:
+                status_code, resp_data = send_telemetry(
+                    url=args.url,
+                    payload=payload,
+                    api_key=api_key_to_use,
+                    auth_mode=args.auth_mode,
+                    timeout=args.timeout,
+                )
 
             transmissions_done += 1
 

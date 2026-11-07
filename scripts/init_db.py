@@ -1,12 +1,17 @@
 #!/usr/bin/env python3
 """
-scripts/init_db.py - Database Initializer & Seed Provisioning CLI
+scripts/init_db.py - Comprehensive Database Initializer & Migration Tool
+HydroSense IoT - Smart Water Tank Monitoring System v2.0
 
-Creates the SQLite relational schema with WAL mode, foreign keys, physical domain
-constraints, composite B-Tree indexes, and idempotently provisions factory seed data.
-
-Usage:
-    python scripts/init_db.py [--db-path PATH] [--reset] [--seed] [--verbose] [--quiet]
+Creates the 6 core production tables:
+1. users
+2. tanks
+3. devices
+4. telemetry
+5. alerts
+6. backup_records
+Along with legacy backward compatibility tables/views, high-concurrency WAL mode PRAGMAs,
+and factory seed data.
 """
 
 import argparse
@@ -14,7 +19,6 @@ import os
 import sqlite3
 import sys
 
-# Ensure project root is importable
 PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 if PROJECT_ROOT not in sys.path:
     sys.path.insert(0, PROJECT_ROOT)
@@ -26,170 +30,249 @@ except ImportError:
 
 
 SCHEMA_DDL = """
--- Foreign Key referential integrity enforcement
 PRAGMA foreign_keys = ON;
 
 -- ----------------------------------------------------------------------------
--- 1. Devices Table
+-- 1. Users Table
+-- ----------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS users (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    username TEXT UNIQUE NOT NULL CHECK (length(trim(username)) > 0),
+    password_hash TEXT NOT NULL,
+    email TEXT,
+    role TEXT NOT NULL DEFAULT 'operator' CHECK (role IN ('admin', 'operator', 'viewer')),
+    created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
+);
+
+-- ----------------------------------------------------------------------------
+-- 2. Tanks Table (Multi-tank support, cylindrical & rectangular geometry)
+-- ----------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS tanks (
+    tank_id TEXT PRIMARY KEY NOT NULL CHECK (length(trim(tank_id)) > 0),
+    tank_name TEXT NOT NULL CHECK (length(trim(tank_name)) > 0),
+    shape TEXT NOT NULL DEFAULT 'cylinder' CHECK (shape IN ('cylinder', 'rectangle', 'custom')),
+    tank_height_cm REAL NOT NULL DEFAULT 200.0 CHECK (tank_height_cm > 0.0),
+    sensor_offset_cm REAL NOT NULL DEFAULT 15.0 CHECK (sensor_offset_cm >= 0.0),
+    total_capacity_litres REAL NOT NULL DEFAULT 1000.0 CHECK (total_capacity_litres > 0.0),
+    length_cm REAL,
+    width_cm REAL,
+    radius_cm REAL,
+    safe_max_percent REAL NOT NULL DEFAULT 95.0 CHECK (safe_max_percent > 0.0 AND safe_max_percent <= 100.0),
+    critical_low_percent REAL NOT NULL DEFAULT 10.0 CHECK (critical_low_percent >= 0.0),
+    low_percent REAL NOT NULL DEFAULT 25.0 CHECK (low_percent > critical_low_percent),
+    high_percent REAL NOT NULL DEFAULT 85.0 CHECK (high_percent > low_percent),
+    offline_threshold_seconds INTEGER NOT NULL DEFAULT 300 CHECK (offline_threshold_seconds >= 10),
+    created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
+);
+
+-- ----------------------------------------------------------------------------
+-- 3. Devices Table (Multi-device support, mapped to tanks)
 -- ----------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS devices (
     device_id TEXT PRIMARY KEY NOT NULL CHECK (length(trim(device_id)) > 0),
     device_name TEXT NOT NULL CHECK (length(trim(device_name)) > 0),
+    tank_id TEXT REFERENCES tanks(tank_id) ON DELETE SET NULL,
     api_key TEXT NOT NULL CHECK (length(trim(api_key)) > 0),
+    ip_address TEXT,
+    firmware_version TEXT DEFAULT '2.0.0',
     created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
     last_seen TEXT,
     is_active INTEGER NOT NULL DEFAULT 1 CHECK (is_active IN (0, 1))
 );
 
 -- ----------------------------------------------------------------------------
--- 2. Tank Settings Table (Singleton Pattern: id=1)
+-- 4. Telemetry Table (Core high-frequency time-series measurements)
 -- ----------------------------------------------------------------------------
-CREATE TABLE IF NOT EXISTS tank_settings (
-    id INTEGER PRIMARY KEY CHECK (id = 1),
-    tank_height_cm REAL NOT NULL DEFAULT 200.0 CHECK (tank_height_cm > 0.0),
-    total_height_cm REAL DEFAULT 200.0 CHECK (total_height_cm IS NULL OR total_height_cm > 0.0),
-    sensor_offset_cm REAL NOT NULL DEFAULT 15.0 CHECK (sensor_offset_cm >= 0.0),
-    total_capacity_litres REAL NOT NULL DEFAULT 1000.0 CHECK (total_capacity_litres > 0.0),
-    warning_low_percent REAL DEFAULT 20.0 CHECK (warning_low_percent >= 0.0 AND warning_low_percent <= 100.0),
-    warning_normal_percent REAL DEFAULT 50.0 CHECK (warning_normal_percent >= 0.0 AND warning_normal_percent <= 100.0),
-    low_threshold_percent REAL DEFAULT 20.0 CHECK (low_threshold_percent >= 0.0 AND low_threshold_percent <= 100.0),
-    critical_low_threshold_percent REAL DEFAULT 10.0,
-    offline_threshold_seconds INTEGER NOT NULL DEFAULT 300 CHECK (offline_threshold_seconds >= 10),
-    updated_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
-);
-
--- ----------------------------------------------------------------------------
--- 3. Water Readings Telemetry Table
--- ----------------------------------------------------------------------------
-CREATE TABLE IF NOT EXISTS water_readings (
+CREATE TABLE IF NOT EXISTS telemetry (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     device_id TEXT NOT NULL,
+    tank_id TEXT NOT NULL,
     distance_cm REAL NOT NULL CHECK (distance_cm >= 0.0),
-    water_level_cm REAL NOT NULL CHECK (water_level_cm >= 0.0),
-    water_percentage REAL NOT NULL CHECK (water_percentage >= 0.0 AND water_percentage <= 100.0),
-    water_litres REAL NOT NULL CHECK (water_litres >= 0.0),
+    water_height REAL NOT NULL,
+    water_percentage REAL NOT NULL,
+    water_volume REAL NOT NULL,
+    status TEXT NOT NULL CHECK (status IN ('CRITICAL LOW', 'LOW', 'NORMAL', 'HIGH', 'OVERLOADED', 'SENSOR FAULT')),
     timestamp TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
     date TEXT NOT NULL CHECK (length(date) = 10 AND date LIKE '____-__-__'),
-    raw_reading_json TEXT,
-    FOREIGN KEY (device_id) REFERENCES devices (device_id) ON DELETE CASCADE
+    raw_payload TEXT,
+    FOREIGN KEY (tank_id) REFERENCES tanks(tank_id) ON DELETE CASCADE,
+    FOREIGN KEY (device_id) REFERENCES devices(device_id) ON DELETE CASCADE
 );
 
--- B-Tree Indexes for Water Readings (both naming conventions supported)
-CREATE INDEX IF NOT EXISTS idx_water_readings_timestamp ON water_readings (timestamp);
-CREATE INDEX IF NOT EXISTS idx_water_readings_date ON water_readings (date);
-CREATE INDEX IF NOT EXISTS idx_water_readings_device_time ON water_readings (device_id, timestamp);
-CREATE INDEX IF NOT EXISTS idx_readings_timestamp ON water_readings (timestamp);
-CREATE INDEX IF NOT EXISTS idx_readings_date ON water_readings (date);
-CREATE INDEX IF NOT EXISTS idx_readings_device_time ON water_readings (device_id, timestamp);
+CREATE INDEX IF NOT EXISTS idx_telemetry_tank_ts ON telemetry (tank_id, timestamp);
+CREATE INDEX IF NOT EXISTS idx_telemetry_device_ts ON telemetry (device_id, timestamp);
+CREATE INDEX IF NOT EXISTS idx_telemetry_date ON telemetry (date);
+CREATE INDEX IF NOT EXISTS idx_telemetry_status ON telemetry (status);
 
 -- ----------------------------------------------------------------------------
--- 4. Backup Logs Table
+-- 5. Alerts Table (Section 7 and 11)
 -- ----------------------------------------------------------------------------
-CREATE TABLE IF NOT EXISTS backup_logs (
+CREATE TABLE IF NOT EXISTS alerts (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    tank_id TEXT,
+    device_id TEXT,
+    alert_type TEXT NOT NULL,
+    severity TEXT NOT NULL DEFAULT 'warning' CHECK (severity IN ('critical', 'warning', 'info')),
+    message TEXT NOT NULL,
+    is_acknowledged INTEGER NOT NULL DEFAULT 0 CHECK (is_acknowledged IN (0, 1)),
+    acknowledged_at TEXT,
+    timestamp TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+    FOREIGN KEY (tank_id) REFERENCES tanks(tank_id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_alerts_ack ON alerts (is_acknowledged, timestamp);
+CREATE INDEX IF NOT EXISTS idx_alerts_tank ON alerts (tank_id, timestamp);
+
+-- ----------------------------------------------------------------------------
+-- 6. Backup Records Table (Section 11)
+-- ----------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS backup_records (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     filename TEXT NOT NULL CHECK (length(trim(filename)) > 0),
     file_path TEXT NOT NULL CHECK (length(trim(file_path)) > 0),
-    filepath TEXT,
-    backup_type TEXT NOT NULL CHECK (backup_type IN ('scheduled', 'manual')),
-    file_format TEXT NOT NULL DEFAULT 'json' CHECK (file_format IN ('csv', 'json', 'both')),
-    format TEXT DEFAULT 'json',
+    record_count INTEGER NOT NULL DEFAULT 0 CHECK (record_count >= 0),
     file_size_bytes INTEGER NOT NULL DEFAULT 0 CHECK (file_size_bytes >= 0),
-    records_count INTEGER NOT NULL DEFAULT 0 CHECK (records_count >= 0),
+    backup_type TEXT NOT NULL DEFAULT 'automated' CHECK (backup_type IN ('automated', 'manual', 'scheduled')),
+    status TEXT NOT NULL DEFAULT 'success' CHECK (status IN ('success', 'failed')),
+    created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+    notes TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_backup_records_created ON backup_records (created_at);
+
+-- ----------------------------------------------------------------------------
+-- 7. Legacy Compatibility Tables (to support older routes seamlessly)
+-- ----------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS tank_settings (
+    id INTEGER PRIMARY KEY CHECK (id = 1),
+    tank_height_cm REAL NOT NULL DEFAULT 200.0,
+    total_height_cm REAL DEFAULT 200.0,
+    sensor_offset_cm REAL NOT NULL DEFAULT 15.0,
+    total_capacity_litres REAL NOT NULL DEFAULT 1000.0,
+    warning_low_percent REAL DEFAULT 20.0,
+    warning_normal_percent REAL DEFAULT 50.0,
+    low_threshold_percent REAL DEFAULT 20.0,
+    critical_low_threshold_percent REAL DEFAULT 10.0,
+    offline_threshold_seconds INTEGER NOT NULL DEFAULT 300,
+    updated_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
+);
+
+CREATE TABLE IF NOT EXISTS water_readings (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    device_id TEXT NOT NULL,
+    distance_cm REAL NOT NULL,
+    water_level_cm REAL NOT NULL,
+    water_percentage REAL NOT NULL,
+    water_litres REAL NOT NULL,
+    timestamp TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+    date TEXT NOT NULL,
+    raw_reading_json TEXT
+);
+
+CREATE TABLE IF NOT EXISTS backup_logs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    filename TEXT NOT NULL,
+    file_path TEXT NOT NULL,
+    filepath TEXT,
+    backup_type TEXT NOT NULL,
+    file_format TEXT NOT NULL DEFAULT 'json',
+    format TEXT DEFAULT 'json',
+    file_size_bytes INTEGER NOT NULL DEFAULT 0,
+    records_count INTEGER NOT NULL DEFAULT 0,
     record_count INTEGER DEFAULT 0,
-    status TEXT NOT NULL CHECK (status IN ('success', 'failed')),
+    status TEXT NOT NULL,
     error_message TEXT,
     created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
 );
-
--- B-Tree Indexes for Backup Logs (both naming conventions supported)
-CREATE INDEX IF NOT EXISTS idx_backup_logs_created_at ON backup_logs (created_at);
-CREATE INDEX IF NOT EXISTS idx_backup_created_at ON backup_logs (created_at);
 """
 
 DEFAULT_SEED_SQL = """
--- Default Device Seed (Idempotent)
-INSERT OR IGNORE INTO devices (
-    device_id, device_name, api_key, is_active
+-- Default Users
+INSERT OR IGNORE INTO users (id, username, password_hash, email, role)
+VALUES (1, 'admin', 'pbkdf2:sha256:600000$hydrosense$admin', 'admin@hydrosense.local', 'admin');
+
+-- Default Tanks (Cylindrical Overhead + Rectangular Sump)
+INSERT OR IGNORE INTO tanks (
+    tank_id, tank_name, shape, tank_height_cm, sensor_offset_cm,
+    total_capacity_litres, radius_cm, safe_max_percent,
+    critical_low_percent, low_percent, high_percent, offline_threshold_seconds
 ) VALUES (
-    'SV_BLOCK_OVER_TANK', 'SV Block Overhead Tank', 'water_secret_key_2026', 1
-);
-INSERT OR IGNORE INTO devices (
-    device_id, device_name, api_key, is_active
-) VALUES (
-    'esp32_tank_01', 'Main Water Tank', 'water_secret_key_2026', 1
+    'SV_BLOCK_OVER_TANK', 'SV Block Overhead Tank', 'cylinder',
+    200.0, 15.0, 1000.0, 39.89, 95.0,
+    10.0, 25.0, 85.0, 300
 );
 
--- Default Tank Settings Seed (Singleton id=1, Idempotent)
+INSERT OR IGNORE INTO tanks (
+    tank_id, tank_name, shape, tank_height_cm, sensor_offset_cm,
+    total_capacity_litres, length_cm, width_cm, safe_max_percent,
+    critical_low_percent, low_percent, high_percent, offline_threshold_seconds
+) VALUES (
+    'GROUND_SUMP_TANK_01', 'Ground Sump Storage', 'rectangle',
+    180.0, 10.0, 2500.0, 150.0, 100.0, 95.0,
+    10.0, 25.0, 85.0, 300
+);
+
+-- Default Devices
+INSERT OR IGNORE INTO devices (
+    device_id, device_name, tank_id, api_key, firmware_version, is_active
+) VALUES (
+    'SV_BLOCK_OVER_TANK', 'NodeMCU SV Overhead Sensor', 'SV_BLOCK_OVER_TANK', 'water_secret_key_2026', '2.1.0', 1
+);
+
+INSERT OR IGNORE INTO devices (
+    device_id, device_name, tank_id, api_key, firmware_version, is_active
+) VALUES (
+    'esp32_tank_01', 'ESP32 Sump Ultrasonic Monitor', 'GROUND_SUMP_TANK_01', 'water_secret_key_2026', '2.1.0', 1
+);
+
+-- Seed initial tank_settings for legacy backward compatibility
 INSERT OR IGNORE INTO tank_settings (
     id, tank_height_cm, total_height_cm, sensor_offset_cm,
     total_capacity_litres, warning_low_percent, warning_normal_percent,
     low_threshold_percent, critical_low_threshold_percent, offline_threshold_seconds
 ) VALUES (
-    1, 200.0, 200.0, 15.0,
-    1000.0, 20.0, 50.0,
-    20.0, 10.0, 300
+    1, 200.0, 200.0, 15.0, 1000.0, 25.0, 85.0, 25.0, 10.0, 300
 );
 """
 
 
 def log_message(msg: str, verbose: bool = True, quiet: bool = False):
-    """Outputs messages according to verbosity preferences."""
     if not quiet and verbose:
         print(f"[init_db] {msg}")
 
 
 def configure_pragmas(conn: sqlite3.Connection, db_path: str, verbose: bool = False, quiet: bool = False):
-    """Configures high-concurrency PRAGMAs for production and testing."""
     cursor = conn.cursor()
     cursor.execute("PRAGMA foreign_keys = ON;")
     cursor.execute("PRAGMA busy_timeout = 30000;")
-
-    # Apply persistent WAL mode to file-backed databases
     if db_path != ":memory:":
         cursor.execute("PRAGMA journal_mode = WAL;")
         mode = cursor.fetchone()[0]
         cursor.execute("PRAGMA synchronous = NORMAL;")
         log_message(f"Journal mode configured: {mode}", verbose, quiet)
-    else:
-        cursor.execute("PRAGMA journal_mode = MEMORY;")
-        log_message("In-memory SQLite connection configured.", verbose, quiet)
-
-
-def reset_database(conn: sqlite3.Connection, verbose: bool = False, quiet: bool = False):
-    """Drops existing tables cleanly without triggering Windows file-lock errors."""
-    log_message("Resetting existing database schema...", verbose, quiet)
-    cursor = conn.cursor()
-    cursor.execute("PRAGMA foreign_keys = OFF;")
-    
-    # Drop in reverse foreign key order
-    drop_tables = ["backup_logs", "water_readings", "tank_settings", "devices"]
-    for table in drop_tables:
-        cursor.execute(f"DROP TABLE IF EXISTS {table};")
-
-    # Drop explicit indexes
-    drop_indexes = [
-        "idx_water_readings_timestamp", "idx_water_readings_date", "idx_water_readings_device_time",
-        "idx_readings_timestamp", "idx_readings_date", "idx_readings_device_time",
-        "idx_backup_logs_created_at", "idx_backup_created_at"
-    ]
-    for idx in drop_indexes:
-        cursor.execute(f"DROP INDEX IF EXISTS {idx};")
-
-    cursor.execute("PRAGMA foreign_keys = ON;")
-    conn.commit()
-    log_message("Schema reset complete.", verbose, quiet)
 
 
 def apply_schema(conn: sqlite3.Connection, verbose: bool = False, quiet: bool = False):
-    """Applies the authoritative DDL statements."""
     log_message("Applying database DDL schema...", verbose, quiet)
     conn.executescript(SCHEMA_DDL)
+    
+    # Run idempotent column migrations for existing tables
+    cursor = conn.cursor()
+    cursor.execute("PRAGMA table_info(devices);")
+    existing_dev_cols = {row[1] for row in cursor.fetchall()}
+    if "tank_id" not in existing_dev_cols:
+        cursor.execute("ALTER TABLE devices ADD COLUMN tank_id TEXT REFERENCES tanks(tank_id) ON DELETE SET NULL;")
+    if "ip_address" not in existing_dev_cols:
+        cursor.execute("ALTER TABLE devices ADD COLUMN ip_address TEXT;")
+    if "firmware_version" not in existing_dev_cols:
+        cursor.execute("ALTER TABLE devices ADD COLUMN firmware_version TEXT DEFAULT '2.0.0';")
+    
     conn.commit()
     log_message("Database schema created successfully.", verbose, quiet)
 
 
 def seed_database(conn: sqlite3.Connection, verbose: bool = False, quiet: bool = False):
-    """Applies factory seed data idempotently."""
     log_message("Seeding factory default records...", verbose, quiet)
     conn.executescript(DEFAULT_SEED_SQL)
     conn.commit()
@@ -201,98 +284,61 @@ def init_db(
     reset: bool = False,
     seed: bool = False,
     verbose: bool = False,
-    quiet: bool = False
+    quiet: bool = False,
 ) -> int:
-    """
-    Initializes the SQLite database.
+    resolved_path = db_path or DEFAULT_DB_PATH
+    log_message(f"Connecting to database at: {resolved_path}", verbose, quiet)
 
-    Args:
-        db_path: Path to the target SQLite database file.
-        reset: If True, drops existing tables before re-creating.
-        seed: If True, populates default device and tank settings.
-        verbose: If True, prints informative progress logs.
-        quiet: If True, suppresses non-error output.
-
-    Returns:
-        0 on success, 1 on error.
-    """
-    target_path = db_path or DEFAULT_DB_PATH
+    if resolved_path != ":memory:":
+        parent_dir = os.path.dirname(resolved_path)
+        if parent_dir and not os.path.exists(parent_dir):
+            os.makedirs(parent_dir, exist_ok=True)
 
     try:
-        # Create parent directory automatically if file-backed
-        if target_path != ":memory:":
-            db_dir = os.path.dirname(os.path.abspath(target_path))
-            if db_dir and not os.path.exists(db_dir):
-                os.makedirs(db_dir, exist_ok=True)
-                log_message(f"Created directory: {db_dir}", verbose, quiet)
+        conn = sqlite3.connect(resolved_path, timeout=30.0)
+        configure_pragmas(conn, resolved_path, verbose, quiet)
 
-        log_message(f"Connecting to database at: {target_path}", verbose, quiet)
-        conn = sqlite3.connect(target_path, timeout=30.0)
+        if reset:
+            log_message("Resetting existing database schema...", verbose, quiet)
+            cursor = conn.cursor()
+            cursor.execute("PRAGMA foreign_keys = OFF;")
+            drop_tables = [
+                "telemetry", "alerts", "backup_records", "devices", "tanks", "users",
+                "water_readings", "tank_settings", "backup_logs"
+            ]
+            for t in drop_tables:
+                cursor.execute(f"DROP TABLE IF EXISTS {t};")
+            cursor.execute("PRAGMA foreign_keys = ON;")
+            conn.commit()
+            log_message("Schema reset complete.", verbose, quiet)
 
-        try:
-            configure_pragmas(conn, target_path, verbose=verbose, quiet=quiet)
+        apply_schema(conn, verbose, quiet)
 
-            if reset:
-                reset_database(conn, verbose=verbose, quiet=quiet)
+        if seed:
+            seed_database(conn, verbose, quiet)
 
-            apply_schema(conn, verbose=verbose, quiet=quiet)
-
-            if seed:
-                seed_database(conn, verbose=verbose, quiet=quiet)
-
-            log_message("Database initialization completed successfully.", verbose, quiet)
-            return 0
-        finally:
-            conn.close()
-
-    except Exception as exc:
-        sys.stderr.write(f"[init_db ERROR] Failed to initialize database: {exc}\n")
+        conn.close()
+        log_message("Database initialization completed successfully.", verbose, quiet)
+        return 0
+    except Exception as e:
+        print(f"[init_db ERROR] Failed: {e}", file=sys.stderr)
         return 1
 
 
-def parse_arguments() -> argparse.Namespace:
-    """Parses command-line arguments."""
-    parser = argparse.ArgumentParser(
-        description="Initialize and seed SQLite database for Smart Water Tank Level Monitoring System."
-    )
-    parser.add_argument(
-        "--db-path",
-        type=str,
-        default=None,
-        help=f"Target database file path (default: {DEFAULT_DB_PATH})"
-    )
-    parser.add_argument(
-        "--reset",
-        action="store_true",
-        help="Drop and recreate all tables and indexes."
-    )
-    parser.add_argument(
-        "--seed",
-        action="store_true",
-        help="Seed initial device and singleton tank settings."
-    )
-    parser.add_argument(
-        "--verbose",
-        "-v",
-        action="store_true",
-        help="Enable verbose output logging."
-    )
-    parser.add_argument(
-        "--quiet",
-        "-q",
-        action="store_true",
-        help="Suppress all standard output."
-    )
-    return parser.parse_args()
-
-
 if __name__ == "__main__":
-    args = parse_arguments()
+    parser = argparse.ArgumentParser(description="HydroSense IoT Database Initializer")
+    parser.add_argument("--db-path", default=None, help="Path to database file")
+    parser.add_argument("--reset", action="store_true", help="Drop all existing tables before init")
+    parser.add_argument("--seed", action="store_true", help="Seed default tanks, devices and admin")
+    parser.add_argument("--verbose", "-v", action="store_true", default=True, help="Verbose log output")
+    parser.add_argument("--quiet", "-q", action="store_true", help="Quiet mode")
+
+    args = parser.parse_args()
     exit_code = init_db(
         db_path=args.db_path,
         reset=args.reset,
         seed=args.seed,
-        verbose=args.verbose,
-        quiet=args.quiet
+        verbose=args.verbose and not args.quiet,
+        quiet=args.quiet,
     )
     sys.exit(exit_code)
