@@ -235,39 +235,39 @@
               </clipPath>
             </defs>
 
-            <!-- Ultrasonic Sensor Transducer Housing on Top -->
+            {/* Ultrasonic Sensor Transducer Housing on Top */}
             <rect x="85" y="16" width="70" height="18" rx="5" fill="#1e293b" stroke="#475569" strokeWidth="2" />
             <circle cx="102" cy="25" r="4.5" fill="#334155" stroke="#64748b" strokeWidth="1.5" />
             <circle cx="138" cy="25" r="4.5" fill="#334155" stroke="#64748b" strokeWidth="1.5" />
             
-            <!-- Sensor Sonic Pulse Ray Beam down to water level -->
+            {/* Sensor Sonic Pulse Ray Beam down to water level */}
             <line x1="120" y1="34" x2="120" y2={liquidY} stroke="#06b6d4" strokeWidth="2.5" strokeDasharray="6 4" className="sonar-beam" />
             
-            <!-- Tank Shell Background Vessel -->
+            {/* Tank Shell Background Vessel */}
             <rect x="35" y="40" width="170" height="240" rx="16" fill="url(#tankShell)" stroke="#475569" strokeWidth="3" />
 
-            <!-- Clipped Liquid Column -->
+            {/* Clipped Liquid Column */}
             <g clipPath="url(#tankInnerClip)">
-              <!-- Base Liquid Body Rect -->
+              {/* Base Liquid Body Rect */}
               <rect x="35" y={liquidY} width="170" height={liquidH + 10} fill={`url(#liquidGrad-${clampedPct})`} />
               
-              <!-- Back Sinusoidal Wave -->
+              {/* Back Sinusoidal Wave */}
               <g transform={`translate(0, ${liquidY})`}>
                 <path className="wave-back opacity-50" fill={gradEnd}
                   d="M-200,0 C-150,-10 -100,10 -50,0 C0,-10 50,10 100,0 C150,-10 200,10 250,0 C300,-10 350,10 400,0 L400,60 L-200,60 Z" />
               </g>
 
-              <!-- Front Sinusoidal Wave -->
+              {/* Front Sinusoidal Wave */}
               <g transform={`translate(0, ${liquidY})`}>
                 <path className="wave-front opacity-80" fill={`url(#liquidGrad-${clampedPct})`}
                   d="M-200,0 C-140,8 -80,-8 -20,0 C40,8 100,-8 160,0 C220,8 280,-8 340,0 C400,8 460,-8 520,0 L520,60 L-200,60 Z" />
               </g>
 
-              <!-- Glass Surface Reflection Sheen -->
+              {/* Glass Surface Reflection Sheen */}
               <rect x="35" y="40" width="170" height="240" fill="url(#glassGloss)" pointerEvents="none" />
             </g>
 
-            <!-- Calibration Graduation Marks & Percent Labels -->
+            {/* Calibration Graduation Marks & Percent Labels */}
             <g stroke="#64748b" strokeWidth="1.5">
               <line x1="26" y1="40" x2="35" y2="40" />
               <text x="22" y="44" fontSize="9" fill="#94a3b8" textAnchor="end" className="font-mono">100%</text>
@@ -285,11 +285,11 @@
               <text x="22" y="283" fontSize="9" fill="#94a3b8" textAnchor="end" className="font-mono">0%</text>
             </g>
 
-            <!-- Base Stand Feet -->
+            {/* Base Stand Feet */}
             <rect x="65" y="284" width="110" height="12" rx="3" fill="#334155" stroke="#475569" strokeWidth="1.5" />
             <rect x="50" y="296" width="140" height="6" rx="2" fill="#1e293b" />
 
-            <!-- Center Readout Overlay -->
+            {/* Center Readout Overlay */}
             <g textAnchor="middle">
               <text x="120" y="148" className="font-mono font-bold text-3xl" fill="#ffffff" filter="drop-shadow(0 2px 4px rgba(0,0,0,0.8))">
                 {clampedPct.toFixed(1)}%
@@ -299,7 +299,7 @@
               </text>
             </g>
 
-            <!-- Flashing Overload Alert Banner -->
+            {/* Flashing Overload Alert Banner */}
             {isOverloaded && (
               <g transform="translate(45, 105)">
                 <rect width="150" height="30" rx="6" fill="#dc2626" opacity="0.95" stroke="#ffffff" strokeWidth="1.5" className="animate-pulse" />
@@ -310,7 +310,7 @@
             )}
           </svg>
 
-          <!-- Status Pill Under Tank -->
+          {/* Status Pill Under Tank */}
           <div className={`mt-2 px-3 py-1 rounded-full text-xs font-semibold border ${badgeBg}`}>
             {status}
           </div>
@@ -333,7 +333,7 @@
 
       return (
         <aside className="w-64 bg-scada-850 border-r border-scada-700 flex flex-col shrink-0">
-          <!-- Logo & Brand Header -->
+          {/* Logo & Brand Header */}
           <div className="p-5 border-b border-scada-700 flex items-center gap-3">
             <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-cyan-500 to-blue-600 flex items-center justify-center shadow-lg shadow-cyan-500/20">
               <svg className="w-6 h-6 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -348,7 +348,7 @@
             </div>
           </div>
 
-          <!-- Navigation Links -->
+          {/* Navigation Links */}
           <nav className="p-3 space-y-1 flex-1">
             {navItems.map((item) => {
               const active = currentTab === item.id;
@@ -378,7 +378,7 @@
             })}
           </nav>
 
-          <!-- Footer Server Health Indicator -->
+          {/* Footer Server Health Indicator */}
           <div className="p-4 border-t border-scada-700 bg-scada-900/50">
             <div className="flex items-center justify-between text-xs text-slate-400">
               <span className="flex items-center gap-2">
@@ -398,7 +398,7 @@
     function Header({ tanks, selectedTankId, setSelectedTankId, autoRefresh, setAutoRefresh, onSimulateOpen, activeAlertCount = 0 }) {
       return (
         <header className="h-16 bg-scada-850 border-b border-scada-700 px-6 flex items-center justify-between gap-4 shrink-0">
-          <!-- Active Tank Switcher -->
+          {/* Active Tank Switcher */}
           <div className="flex items-center gap-3">
             <span className="text-xs uppercase font-mono tracking-wider text-slate-400">Active Tank:</span>
             <select
@@ -414,7 +414,7 @@
             </select>
           </div>
 
-          <!-- Controls: Simulator, Auto-refresh, Alerts Badge -->
+          {/* Controls: Simulator, Auto-refresh, Alerts Badge */}
           <div className="flex items-center gap-3">
             <button
               onClick={onSimulateOpen}
@@ -448,7 +448,7 @@
     function DashboardView({ summary, tanks, onSelectTank, onOpenSettings }) {
       return (
         <div className="p-6 space-y-6">
-          <!-- 1. KPI Metric Scorecard Grid -->
+          {/* 1. KPI Metric Scorecard Grid */}
           <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
             <div className="bg-scada-800/80 border border-scada-700 rounded-xl p-4 flex flex-col justify-between">
               <span className="text-xs font-mono uppercase text-slate-400">Total Tanks</span>
@@ -510,7 +510,7 @@
             </div>
           </div>
 
-          <!-- 2. Tank Cards Grid -->
+          {/* 2. Tank Cards Grid */}
           <div>
             <div className="flex items-center justify-between mb-4">
               <h2 className="text-lg font-bold text-white tracking-tight flex items-center gap-2">
@@ -524,7 +524,7 @@
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-2 xl:grid-cols-3 gap-6">
               {tanks.map((t) => (
                 <div key={t.tank_id} className="bg-scada-800/90 border border-scada-700 rounded-2xl p-5 hover:border-scada-600 transition-all shadow-xl flex flex-col justify-between">
-                  <!-- Tank Card Header -->
+                  {/* Tank Card Header */}
                   <div className="flex items-start justify-between border-b border-scada-700/80 pb-3 mb-4">
                     <div>
                       <h3 className="font-bold text-base text-white">{t.tank_name}</h3>
@@ -546,7 +546,7 @@
                     </div>
                   </div>
 
-                  <!-- Tank Card Body: Animated SVG & Quick Metrics -->
+                  {/* Tank Card Body: Animated SVG & Quick Metrics */}
                   <div className="grid grid-cols-2 gap-4 items-center my-2">
                     <FluidTankVisualizer
                       percentage={t.current_percentage}
@@ -590,7 +590,7 @@
                     </div>
                   </div>
 
-                  <!-- Card Footer Action Buttons -->
+                  {/* Card Footer Action Buttons */}
                   <div className="border-t border-scada-700/80 pt-3 mt-4 flex items-center justify-between">
                     <span className="text-[11px] text-slate-400 flex items-center gap-1 font-mono">
                       <span>Updated:</span>
@@ -709,7 +709,7 @@
 
       return (
         <div className="p-6 space-y-6">
-          <!-- Top Bar: Range Selector & Metric Mode -->
+          {/* Top Bar: Range Selector & Metric Mode */}
           <div className="flex flex-wrap items-center justify-between gap-4 bg-scada-800 p-4 rounded-xl border border-scada-700">
             <div>
               <h2 className="text-lg font-bold text-white">Historical Telemetry & Consumption Analytics</h2>
@@ -759,7 +759,7 @@
             </div>
           </div>
 
-          <!-- Statistical Metrics Grid -->
+          {/* Statistical Metrics Grid */}
           {historyData && (
             <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
               <div className="bg-scada-800 p-4 rounded-xl border border-scada-700 font-mono">
@@ -792,7 +792,7 @@
             </div>
           )}
 
-          <!-- Canvas Chart -->
+          {/* Canvas Chart */}
           <div className="bg-scada-800 p-5 rounded-2xl border border-scada-700 h-96 relative">
             {loading ? (
               <div className="flex items-center justify-center h-full text-slate-400 font-mono text-sm">
@@ -835,7 +835,7 @@
             </button>
           </div>
 
-          <!-- Devices Table -->
+          {/* Devices Table */}
           <div className="bg-scada-800 border border-scada-700 rounded-xl overflow-hidden shadow-lg">
             <table className="w-full text-left text-sm font-mono">
               <thead className="bg-scada-850 text-slate-400 text-xs uppercase border-b border-scada-700">
@@ -876,7 +876,7 @@
             </table>
           </div>
 
-          <!-- Add Device Modal -->
+          {/* Add Device Modal */}
           {showModal && (
             <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4 z-50">
               <div className="bg-scada-800 border border-scada-600 rounded-2xl max-w-md w-full p-6 shadow-2xl space-y-4">
@@ -1052,7 +1052,7 @@
 
       return (
         <div className="p-6 space-y-6">
-          <!-- 1. Interactive Testing Mode Simulator (Section 14) -->
+          {/* 1. Interactive Testing Mode Simulator (Section 14) */}
           <div className="bg-scada-800 p-6 rounded-2xl border border-scada-700 shadow-xl space-y-4">
             <div className="flex items-center justify-between border-b border-scada-700 pb-3">
               <div>
@@ -1069,7 +1069,7 @@
               <span className="text-xs font-mono text-cyan-400">Target: {currentTank.tank_name}</span>
             </div>
 
-            <!-- Slider & Presets -->
+            {/* Slider & Presets */}
             <div className="space-y-4 pt-2">
               <div className="flex items-center justify-between font-mono text-sm">
                 <span className="text-slate-400">Ultrasonic Distance:</span>
@@ -1086,7 +1086,7 @@
                 className="w-full accent-cyan-500 h-2 bg-scada-900 rounded-lg cursor-pointer"
               />
 
-              <!-- Quick Presets -->
+              {/* Quick Presets */}
               <div className="flex flex-wrap gap-2 pt-2">
                 <button onClick={() => { setDistSlider(8.0); handleSimulate(8.0); }} className="px-3 py-1 text-xs rounded bg-red-600/30 text-red-300 border border-red-500 hover:bg-red-600/50">
                   🚨 Overload (8 cm)
@@ -1124,7 +1124,7 @@
             </div>
           </div>
 
-          <!-- 2. Tank Geometry & Calibration Settings Form -->
+          {/* 2. Tank Geometry & Calibration Settings Form */}
           <div className="bg-scada-800 p-6 rounded-2xl border border-scada-700 shadow-xl space-y-4">
             <h3 className="text-lg font-bold text-white">Vessel Calibration & Dimensional Math</h3>
             <form onSubmit={handleSaveSettings} className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
@@ -1243,10 +1243,10 @@
 
       return (
         <div className="flex h-screen overflow-hidden">
-          <!-- Sidebar -->
+          {/* Sidebar */}
           <Sidebar currentTab={currentTab} setCurrentTab={setCurrentTab} alertCount={alerts.length} />
 
-          <!-- Main Layout -->
+          {/* Main Layout */}
           <div className="flex-1 flex flex-col min-w-0 bg-scada-900 overflow-y-auto">
             <Header
               tanks={tanks}
