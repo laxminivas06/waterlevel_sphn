@@ -15,6 +15,7 @@ data/*.db-wal
 data/*.db-shm
 data/*.tmp*
 data/*.json.tmp*
+data/database.json
 backups/*.json
 backups/*.csv
 
