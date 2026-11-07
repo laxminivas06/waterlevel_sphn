@@ -42,9 +42,14 @@ function initTabs() {
 // -----------------------------------------------------------------------------
 // 2. 15-Day History & Analytics Chart
 // -----------------------------------------------------------------------------
-async function loadHistoryForDate(dateStr) {
+async function loadHistoryForDate(dateStr, deviceId) {
   try {
-    const res = await fetch(`/api/history/readings?date=${encodeURIComponent(dateStr)}`);
+    let url = `/api/history/readings?date=${encodeURIComponent(dateStr)}`;
+    const dev = deviceId || localStorage.getItem("selected_device_id");
+    if (dev) {
+      url += `&device_id=${encodeURIComponent(dev)}`;
+    }
+    const res = await fetch(url);
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const data = await res.json();
     renderAnalyticsChart(data.date, data.readings || []);
@@ -52,6 +57,8 @@ async function loadHistoryForDate(dateStr) {
     console.error("Error loading historical readings:", err);
   }
 }
+
+window.loadHistoryForDate = loadHistoryForDate;
 
 function renderAnalyticsChart(dateStr, readings) {
   const canvas = document.getElementById("analytics-chart");

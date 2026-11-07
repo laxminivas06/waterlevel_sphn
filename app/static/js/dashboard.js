@@ -9,22 +9,71 @@ document.addEventListener("DOMContentLoaded", () => {
   let pollInterval = 3000;
   let pollTimer = null;
   let lastReadingId = null;
+  let currentDeviceId = localStorage.getItem("selected_device_id") || "";
 
   // ---------------------------------------------------------------------------
   // 1. Live Telemetry Poller
   // ---------------------------------------------------------------------------
   async function pollCurrentStatus() {
     try {
-      const res = await fetch("/api/water-level/current");
+      const url = currentDeviceId
+        ? `/api/water-level/current?device_id=${encodeURIComponent(currentDeviceId)}`
+        : "/api/water-level/current";
+      const res = await fetch(url);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();
       updateDashboard(data);
+
+      if (!currentDeviceId && data.device && data.device.device_id) {
+        currentDeviceId = data.device.device_id;
+      }
+      refreshDeviceDropdown(currentDeviceId);
     } catch (err) {
       console.warn("Telemetry polling warning:", err);
       updateConnectionStatus(false, "Connection Error");
     } finally {
       scheduleNextPoll();
     }
+  }
+
+  window.pollCurrentStatus = pollCurrentStatus;
+
+  async function refreshDeviceDropdown(selectedId) {
+    const select = document.getElementById("device-selector");
+    if (!select) return;
+    try {
+      const res = await fetch("/api/devices");
+      if (!res.ok) return;
+      const data = await res.json();
+      const devices = data.devices || [];
+      if (devices.length === 0) return;
+
+      const currentVal = selectedId || select.value;
+      select.innerHTML = "";
+      devices.forEach((d) => {
+        const opt = document.createElement("option");
+        opt.value = d.device_id;
+        const statusEmoji = d.status === "online" ? "🟢" : "⚪";
+        opt.textContent = `${statusEmoji} ${d.device_name || d.device_id}`;
+        if (d.device_id === currentVal) opt.selected = true;
+        select.appendChild(opt);
+      });
+    } catch (e) {
+      // quiet fail
+    }
+  }
+
+  const deviceSelect = document.getElementById("device-selector");
+  if (deviceSelect) {
+    deviceSelect.addEventListener("change", (e) => {
+      currentDeviceId = e.target.value;
+      localStorage.setItem("selected_device_id", currentDeviceId);
+      pollCurrentStatus();
+      if (window.loadHistoryForDate) {
+        const todayStr = new Date().toISOString().split("T")[0];
+        window.loadHistoryForDate(todayStr, currentDeviceId);
+      }
+    });
   }
 
   function scheduleNextPoll() {
@@ -43,9 +92,9 @@ document.addEventListener("DOMContentLoaded", () => {
   // 2. Dashboard Updater
   // ---------------------------------------------------------------------------
   function updateDashboard(data) {
-    const reading = data.latest_reading || {};
+    const reading = data.latest_reading || data.reading || {};
     const device = data.device || {};
-    const settings = data.settings || {};
+    const settings = data.settings || data.tank || {};
     const today = data.today_summary || {};
     const isOnline = data.is_online === true || device.status === "online";
 

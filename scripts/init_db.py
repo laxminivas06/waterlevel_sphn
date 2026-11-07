@@ -111,6 +111,11 @@ DEFAULT_SEED_SQL = """
 INSERT OR IGNORE INTO devices (
     device_id, device_name, api_key, is_active
 ) VALUES (
+    'SV_BLOCK_OVER_TANK', 'SV Block Overhead Tank', 'water_secret_key_2026', 1
+);
+INSERT OR IGNORE INTO devices (
+    device_id, device_name, api_key, is_active
+) VALUES (
     'esp32_tank_01', 'Main Water Tank', 'water_secret_key_2026', 1
 );
 

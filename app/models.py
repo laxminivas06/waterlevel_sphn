@@ -613,6 +613,10 @@ def get_today_summary(
             net_change_litres = round(latest_row["water_litres"] - earliest_row["water_litres"], 2)
 
     summary["net_change_litres"] = net_change_litres
+    summary["net_water_change_litres"] = net_change_litres
+    summary["min_level_percent"] = summary.get("min_percentage", 0.0)
+    summary["max_level_percent"] = summary.get("max_percentage", 0.0)
+    summary["avg_level_percent"] = summary.get("avg_percentage", 0.0)
     return summary
 
 
