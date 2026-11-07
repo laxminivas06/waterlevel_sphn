@@ -83,6 +83,16 @@ def create_connection(db_path: Optional[str] = None) -> sqlite3.Connection:
         cursor.execute("PRAGMA journal_mode = WAL;")
         cursor.execute("PRAGMA synchronous = NORMAL;")
 
+    # 4. Auto-initialize schema & seed default tanks if database is fresh
+    try:
+        cursor.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='tanks';")
+        if not cursor.fetchone():
+            from scripts.init_db import apply_schema, seed_database
+            apply_schema(conn, quiet=True)
+            seed_database(conn, quiet=True)
+    except Exception:
+        pass
+
     return conn
 
 

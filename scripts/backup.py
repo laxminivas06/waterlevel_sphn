@@ -55,36 +55,55 @@ def export_json(
     output_path: str
 ) -> Tuple[int, int]:
     """
-    Exports full database state to a structured JSON file.
+    Exports full v2.0 database state to a structured JSON file:
+    - tanks
+    - devices
+    - telemetry
+    - alerts
+    - users
+    - legacy water_readings & tank_settings
     Returns (record_count, file_size_bytes).
     """
     conn.row_factory = sqlite3.Row
     cursor = conn.cursor()
 
-    # Query devices
-    cursor.execute("SELECT * FROM devices ORDER BY created_at ASC")
-    devices = [dict(row) for row in cursor.fetchall()]
+    # Query all tables safely (if exists)
+    def fetch_all(table_name: str) -> List[Dict[str, Any]]:
+        try:
+            cursor.execute(f"SELECT * FROM {table_name}")
+            return [dict(row) for row in cursor.fetchall()]
+        except sqlite3.OperationalError:
+            return []
 
-    # Query tank settings
-    cursor.execute("SELECT * FROM tank_settings")
-    settings = [dict(row) for row in cursor.fetchall()]
+    tanks = fetch_all("tanks")
+    devices = fetch_all("devices")
+    telemetry = fetch_all("telemetry")
+    alerts = fetch_all("alerts")
+    users = fetch_all("users")
+    settings = fetch_all("tank_settings")
+    readings = fetch_all("water_readings")
 
-    # Query water readings
-    cursor.execute("SELECT * FROM water_readings ORDER BY timestamp ASC, id ASC")
-    readings = [dict(row) for row in cursor.fetchall()]
-
-    total_records = len(readings)
+    total_records = len(telemetry) or len(readings)
 
     data = {
         "metadata": {
             "created_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
             "format": "json",
+            "version": "2.0.0",
+            "tanks_count": len(tanks),
             "devices_count": len(devices),
-            "readings_count": total_records
+            "telemetry_count": len(telemetry),
+            "alerts_count": len(alerts),
+            "users_count": len(users),
+            "readings_count": len(readings),
         },
+        "tanks": tanks,
         "devices": devices,
+        "telemetry": telemetry,
+        "alerts": alerts,
+        "users": users,
         "tank_settings": settings,
-        "water_readings": readings
+        "water_readings": readings,
     }
 
     os.makedirs(os.path.dirname(os.path.abspath(output_path)), exist_ok=True)
@@ -93,6 +112,104 @@ def export_json(
 
     file_size = os.path.getsize(output_path)
     return total_records, file_size
+
+
+def restore_backup(
+    backup_path: str,
+    db_path: str = DEFAULT_DB_PATH
+) -> Dict[str, Any]:
+    """
+    Restores database records from a JSON backup file.
+    Recovers tanks, devices, telemetry, alerts, and settings.
+    """
+    if not os.path.exists(backup_path):
+        raise FileNotFoundError(f"Backup file not found: {backup_path}")
+
+    with open(backup_path, "r", encoding="utf-8") as f:
+        data = json.load(f)
+
+    # Initialize schema if DB is empty or missing
+    from scripts.init_db import apply_schema, configure_pragmas
+    conn = sqlite3.connect(db_path, timeout=30.0)
+    configure_pragmas(conn, db_path)
+    apply_schema(conn, quiet=True)
+    cursor = conn.cursor()
+
+    restored_counts = {}
+
+    try:
+        # Restore tanks
+        tanks = data.get("tanks", [])
+        for t in tanks:
+            cols = list(t.keys())
+            placeholders = ", ".join(["?"] * len(cols))
+            col_names = ", ".join(cols)
+            cursor.execute(
+                f"INSERT OR REPLACE INTO tanks ({col_names}) VALUES ({placeholders})",
+                list(t.values())
+            )
+        restored_counts["tanks"] = len(tanks)
+
+        # Restore devices
+        devices = data.get("devices", [])
+        for d in devices:
+            cols = list(d.keys())
+            placeholders = ", ".join(["?"] * len(cols))
+            col_names = ", ".join(cols)
+            cursor.execute(
+                f"INSERT OR REPLACE INTO devices ({col_names}) VALUES ({placeholders})",
+                list(d.values())
+            )
+        restored_counts["devices"] = len(devices)
+
+        # Restore telemetry
+        telemetry = data.get("telemetry", [])
+        for r in telemetry:
+            cols = list(r.keys())
+            placeholders = ", ".join(["?"] * len(cols))
+            col_names = ", ".join(cols)
+            cursor.execute(
+                f"INSERT OR REPLACE INTO telemetry ({col_names}) VALUES ({placeholders})",
+                list(r.values())
+            )
+        restored_counts["telemetry"] = len(telemetry)
+
+        # Restore alerts
+        alerts = data.get("alerts", [])
+        for a in alerts:
+            cols = list(a.keys())
+            placeholders = ", ".join(["?"] * len(cols))
+            col_names = ", ".join(cols)
+            cursor.execute(
+                f"INSERT OR REPLACE INTO alerts ({col_names}) VALUES ({placeholders})",
+                list(a.values())
+            )
+        restored_counts["alerts"] = len(alerts)
+
+        # Restore legacy water_readings
+        readings = data.get("water_readings", [])
+        for r in readings:
+            cols = list(r.keys())
+            placeholders = ", ".join(["?"] * len(cols))
+            col_names = ", ".join(cols)
+            try:
+                cursor.execute(
+                    f"INSERT OR REPLACE INTO water_readings ({col_names}) VALUES ({placeholders})",
+                    list(r.values())
+                )
+            except Exception:
+                pass
+        restored_counts["water_readings"] = len(readings)
+
+        conn.commit()
+
+        return {
+            "status": "success",
+            "message": f"Successfully restored database from {backup_path}",
+            "restored_counts": restored_counts,
+        }
+    finally:
+        conn.close()
 
 
 def export_csv(
@@ -312,8 +429,22 @@ def main() -> int:
         default="scheduled",
         help="Backup trigger type logged to database (default: scheduled)"
     )
+    parser.add_argument(
+        "--restore",
+        metavar="BACKUP_FILE",
+        help="Path to JSON backup file to restore into database"
+    )
 
     args = parser.parse_args()
+
+    if args.restore:
+        try:
+            res = restore_backup(backup_path=args.restore, db_path=args.db_path)
+            print(f"Database restoration successful: {json.dumps(res, indent=2)}")
+            return 0
+        except Exception as exc:
+            sys.stderr.write(f"Database restoration failed: {exc}\n")
+            return 1
 
     try:
         result = run_backup(
