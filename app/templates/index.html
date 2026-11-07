@@ -449,7 +449,7 @@
                   <h1 className="font-extrabold text-sm sm:text-base tracking-tight text-white flex items-center gap-2">
                     HydroSense <span className="hidden sm:inline text-xs font-mono px-1.5 py-0.5 rounded bg-cyan-950 text-cyan-400 border border-cyan-800">Live</span>
                   </h1>
-                  <p className="text-[11px] sm:text-xs text-slate-400 truncate">{tank.tank_name || 'Main Water Tank'}</p>
+                  <p className="text-[11px] sm:text-xs text-slate-400 truncate">{tank.tank_name || 'SV Block Overhead Tank'}</p>
                 </div>
               </div>
 
@@ -517,7 +517,7 @@
               <div className="lg:col-span-5 bg-scada-800/70 border border-scada-700/80 rounded-2xl p-5 sm:p-6 shadow-xl flex flex-col items-center justify-between">
                 <div className="w-full flex items-center justify-between border-b border-scada-700 pb-3 mb-3">
                   <div>
-                    <h2 className="text-base sm:text-lg font-bold text-white tracking-tight">{tank.tank_name || 'Main Water Tank'}</h2>
+                    <h2 className="text-base sm:text-lg font-bold text-white tracking-tight">{tank.tank_name || 'SV Block Overhead Tank'}</h2>
                     <span className="text-xs font-mono text-cyan-400 capitalize">{tank.shape || 'Cylindrical'} • {capacity} L</span>
                   </div>
                   <span className="text-xs font-mono px-2 py-0.5 rounded bg-scada-900 border border-scada-700 text-slate-400">
@@ -810,7 +810,7 @@
                     <label className="text-slate-400 block mb-1">Tank Name</label>
                     <input
                       name="tank_name"
-                      defaultValue={tank.tank_name || 'Main Water Tank'}
+                      defaultValue={tank.tank_name || 'SV Block Overhead Tank'}
                       className="w-full bg-scada-900 border border-scada-700 rounded-lg p-2 text-white font-medium"
                       required
                     />

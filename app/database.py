@@ -56,7 +56,7 @@ def get_default_seed_data() -> Dict[str, Any]:
         "tanks": [
             {
                 "tank_id": "SV_BLOCK_OVER_TANK",
-                "tank_name": "Main Water Tank",
+                "tank_name": "SV Block Overhead Tank",
                 "shape": "cylinder",
                 "tank_height_cm": 200.0,
                 "sensor_offset_cm": 15.0,
@@ -76,7 +76,7 @@ def get_default_seed_data() -> Dict[str, Any]:
         "devices": [
             {
                 "device_id": "SV_BLOCK_OVER_TANK",
-                "device_name": "Water Level Sensor",
+                "device_name": "SV Overhead Sensor",
                 "tank_id": "SV_BLOCK_OVER_TANK",
                 "api_key": "water_secret_key_2026",
                 "ip_address": None,
