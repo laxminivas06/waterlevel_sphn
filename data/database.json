@@ -6,7 +6,7 @@
       "password_hash": "pbkdf2:sha256:600000$hydrosense$admin",
       "email": "admin@hydrosense.local",
       "role": "admin",
-      "created_at": "2026-11-07 23:40:48"
+      "created_at": "2026-11-07 23:44:22"
     }
   ],
   "tanks": [
@@ -25,8 +25,8 @@
       "low_percent": 25.0,
       "high_percent": 85.0,
       "offline_threshold_seconds": 300,
-      "created_at": "2026-11-07 23:40:48",
-      "updated_at": "2026-11-07 23:40:48"
+      "created_at": "2026-11-07 23:44:22",
+      "updated_at": "2026-11-07 23:44:22"
     }
   ],
   "devices": [
@@ -37,7 +37,7 @@
       "api_key": "water_secret_key_2026",
       "ip_address": null,
       "firmware_version": "2.1.0",
-      "created_at": "2026-11-07 23:40:48",
+      "created_at": "2026-11-07 23:44:22",
       "last_seen": null,
       "is_active": 1
     }
@@ -56,7 +56,7 @@
     "low_threshold_percent": 25.0,
     "critical_low_threshold_percent": 10.0,
     "offline_threshold_seconds": 300,
-    "updated_at": "2026-11-07 23:40:48"
+    "updated_at": "2026-11-07 23:44:22"
   },
   "water_readings": [],
   "backup_logs": []
