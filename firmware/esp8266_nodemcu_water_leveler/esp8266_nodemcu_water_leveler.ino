@@ -1,7 +1,7 @@
 /**
  * ============================================================================
  * HydroSense IoT - Smart Water Tank Monitoring System v2.0
- * ESP8266 NodeMCU & ESP32 Production Firmware
+ * ESP8266 NodeMCU & ESP32 Production Firmware (Overhead Tank Monitor)
  *
  * Microcontrollers Supported:
  *   - ESP8266 NodeMCU (ESP-12E / ESP-12F / WeMos D1 Mini)
@@ -23,24 +23,28 @@
   #include <ESP8266WiFi.h>
   #include <ESP8266HTTPClient.h>
   #include <WiFiClientSecureBearSSL.h>
-  #define BOARD_NAME "ESP8266 NodeMCU"
-  #define STATUS_LED_PIN D4     // Onboard LED on D4 (GPIO 2)
-  #define TRIG_PIN 12           // NodeMCU D6 = GPIO 12
-  #define ECHO_PIN 14           // NodeMCU D5 = GPIO 14
+  #define BOARD_NAME      "ESP8266 NodeMCU"
+  #define STATUS_LED_PIN  D4    // Onboard LED on D4 (GPIO 2)
+  #define TRIG_PIN        12    // NodeMCU D6 = GPIO 12
+  #define ECHO_PIN        14    // NodeMCU D5 = GPIO 14
+  #define LED_ON          LOW   // ESP8266 onboard LED is active LOW
+  #define LED_OFF         HIGH
 #elif defined(ESP32)
   #include <WiFi.h>
   #include <HTTPClient.h>
   #include <WiFiClientSecure.h>
-  #define BOARD_NAME "ESP32 NodeMCU"
-  #define STATUS_LED_PIN 2      // Onboard LED on GPIO 2
-  #define TRIG_PIN 12           // GPIO 12
-  #define ECHO_PIN 14           // GPIO 14
+  #define BOARD_NAME      "ESP32 NodeMCU"
+  #define STATUS_LED_PIN  2     // Built-in LED on GPIO 2
+  #define TRIG_PIN        12    // GPIO 12
+  #define ECHO_PIN        14    // GPIO 14
+  #define LED_ON          HIGH  // ESP32 built-in LED is active HIGH
+  #define LED_OFF         LOW
 #else
   #error "Unsupported architecture! Select ESP8266 or ESP32 board in Arduino IDE."
 #endif
 
 // ============================================================================
-// 1. CONFIGURATION PARAMETERS (Edit these for your installation)
+// 1. CONFIGURATION PARAMETERS (Edit these for your network installation)
 // ============================================================================
 
 // --- Wi-Fi Network Credentials ---
@@ -50,25 +54,16 @@ const char* WIFI_PASSWORD       = "YOUR_WIFI_PASSWORD";     // Wi-Fi Password
 // --- Backend API Configuration ---
 // PythonAnywhere Production Endpoint
 const char* API_URL             = "https://waterlevelersphn.pythonanywhere.com/api/v1/telemetry";
-const char* DEVICE_ID           = "SV_BLOCK_OVER_TANK";     // Registered Device ID
+const char* DEVICE_ID           = "SV_BLOCK_OVER_TANK";     // Registered Device ID in HydroSense
 const char* API_KEY             = "water_secret_key_2026";  // Secret Authentication Token
 
-// --- Tank Physical Dimensions (Section 4 & 5) ---
-const float TANK_HEIGHT_CM      = 200.0f;  // Internal height from tank bottom to full line (cm)
-const float SENSOR_OFFSET_CM    = 15.0f;   // Distance from sensor face to full water line (cm)
+// --- Overhead Tank Physical Dimensions ---
+const float TANK_HEIGHT_CM      = 200.0f;  // Internal height from bottom to full mark (cm)
+const float SENSOR_OFFSET_CM    = 15.0f;   // Distance from sensor transducer to full mark (cm)
 const float TANK_CAPACITY_L     = 1000.0f; // Total volume capacity in Litres
 
-// --- Telemetry Timing ---
-const unsigned long SEND_INTERVAL_MS = 10000UL;  // Default: 10 seconds (Section 4.10)
-
-// --- SSL Security Mode ---
-// Set to false in production to verify PythonAnywhere SSL certificate/fingerprint
-// Set to true if testing or if PythonAnywhere certificate rotates
-const bool USE_INSECURE_SSL     = false;
-
-// PythonAnywhere / Let's Encrypt SHA-1 Fingerprint (Optional for BearSSL strict verification)
-// Format: "AA BB CC DD EE FF 00 11 22 33 44 55 66 77 88 99 AA BB CC DD"
-const char* SSL_FINGERPRINT     = ""; // Leave empty to use TrustAnchor CA or setInsecure fallback
+// --- Telemetry Reporting Interval ---
+const unsigned long SEND_INTERVAL_MS = 10000UL;  // Every 10 seconds
 
 // ============================================================================
 // Internal State & Timing Variables
@@ -78,7 +73,7 @@ unsigned long reconnectBackoffMs = 5000UL;
 const unsigned long MAX_BACKOFF_MS = 60000UL;
 
 // ============================================================================
-// Ultrasonic Sensor Reading with 5-Sample Median Filter & Timeout Protection
+// Ultrasonic Sensor Reading with 5-Sample Median Noise Filter
 // ============================================================================
 float readUltrasonicDistance() {
   const int SAMPLES = 5;
@@ -86,14 +81,14 @@ float readUltrasonicDistance() {
   int validSamples = 0;
 
   for (int i = 0; i < SAMPLES; i++) {
-    // Generate 10-microsecond clean trigger pulse
+    // Generate clean 10-microsecond trigger pulse
     digitalWrite(TRIG_PIN, LOW);
     delayMicroseconds(2);
     digitalWrite(TRIG_PIN, HIGH);
     delayMicroseconds(10);
     digitalWrite(TRIG_PIN, LOW);
 
-    // Timeout of 30,000 microseconds (~510 cm max range) prevents indefinite blocking
+    // Timeout of 30,000 microseconds (~510 cm max range)
     long duration = pulseIn(ECHO_PIN, HIGH, 30000UL);
 
     if (duration > 100 && duration < 30000) {
@@ -101,15 +96,14 @@ float readUltrasonicDistance() {
       float dist = (duration * 0.0343f) / 2.0f;
       readings[validSamples++] = dist;
     }
-    delay(25); // Sensor settling delay between pulses
+    delay(25); // Settling delay between pulses
   }
 
   if (validSamples == 0) {
-    // Sensor failure or echo timeout
-    return -1.0f;
+    return -1.0f; // Sensor failure or echo timeout
   }
 
-  // Simple insertion sort to find median
+  // Median sort to eliminate outlier reflections
   for (int i = 0; i < validSamples - 1; i++) {
     for (int j = i + 1; j < validSamples; j++) {
       if (readings[i] > readings[j]) {
@@ -124,7 +118,7 @@ float readUltrasonicDistance() {
 }
 
 // ============================================================================
-// Water Level, Volume & Status Calculations (Section 5 & 7)
+// Water Level, Volume & Status Calculations
 // ============================================================================
 struct TankCalculations {
   float water_height_cm;
@@ -148,7 +142,7 @@ TankCalculations computeTankMetrics(float distance_cm) {
 
   calc.sensor_fault = false;
 
-  // Overloaded / Overflow Condition: Water has risen past 100% mark closer than sensor offset
+  // Overloaded / Overflow condition: water closer to sensor than offset
   if (distance_cm < SENSOR_OFFSET_CM) {
     float overflow = SENSOR_OFFSET_CM - distance_cm;
     calc.water_height_cm = TANK_HEIGHT_CM + overflow;
@@ -158,14 +152,13 @@ TankCalculations computeTankMetrics(float distance_cm) {
     return calc;
   }
 
-  // Normal Water Level Equations (Section 5)
-  // Water height = Tank height - Effective air gap
+  // Normal volumetric physics calculation
   float effective_air_gap = distance_cm - SENSOR_OFFSET_CM;
   calc.water_height_cm = max(0.0f, min(TANK_HEIGHT_CM, TANK_HEIGHT_CM - effective_air_gap));
   calc.water_percentage = max(0.0f, min(100.0f, (calc.water_height_cm / TANK_HEIGHT_CM) * 100.0f));
   calc.water_volume_litres = max(0.0f, (calc.water_percentage / 100.0f) * TANK_CAPACITY_L);
 
-  // Status Classification (Section 7)
+  // Status classification thresholds
   if (calc.water_percentage <= 10.0f) {
     calc.status = "CRITICAL LOW";
   } else if (calc.water_percentage <= 25.0f) {
@@ -180,11 +173,11 @@ TankCalculations computeTankMetrics(float distance_cm) {
 }
 
 // ============================================================================
-// Non-Blocking Wi-Fi Manager with Exponential Retry
+// Non-Blocking Wi-Fi Connection Manager
 // ============================================================================
 void ensureWiFiConnected() {
   if (WiFi.status() == WL_CONNECTED) {
-    reconnectBackoffMs = 5000UL; // Reset backoff on success
+    reconnectBackoffMs = 5000UL;
     return;
   }
 
@@ -203,13 +196,13 @@ void ensureWiFiConnected() {
   }
 
   if (WiFi.status() == WL_CONNECTED) {
-    digitalWrite(STATUS_LED_PIN, HIGH);
+    digitalWrite(STATUS_LED_PIN, LED_ON);
     Serial.println();
     Serial.println("[WiFi] Connected successfully!");
     Serial.print("[WiFi] IP Assigned: ");
     Serial.println(WiFi.localIP());
   } else {
-    digitalWrite(STATUS_LED_PIN, LOW);
+    digitalWrite(STATUS_LED_PIN, LED_OFF);
     Serial.println();
     Serial.printf("[WiFi] Connection failed. Retrying in %lu ms...\n", reconnectBackoffMs);
     delay(reconnectBackoffMs);
@@ -234,11 +227,7 @@ bool sendTelemetryPayload(float distance_cm, const TankCalculations& metrics) {
   WiFiClient standardClient;
 
   if (isHttps) {
-    if (USE_INSECURE_SSL || strlen(SSL_FINGERPRINT) == 0) {
-      secureClient->setInsecure(); // Compatible with dynamic cloud cert renewals
-    } else {
-      secureClient->setFingerprint(SSL_FINGERPRINT);
-    }
+    secureClient->setInsecure(); // Handles PythonAnywhere Let's Encrypt certificates smoothly
     http.begin(*secureClient, API_URL);
   } else {
     http.begin(standardClient, API_URL);
@@ -262,7 +251,7 @@ bool sendTelemetryPayload(float distance_cm, const TankCalculations& metrics) {
   http.addHeader("Authorization", String("Bearer ") + API_KEY);
   http.addHeader("User-Agent", "HydroSense-Firmware/2.1");
 
-  // Construct JSON Payload strictly matching Section 3 specification
+  // Construct JSON payload
   char jsonBody[320];
   snprintf(jsonBody, sizeof(jsonBody),
     "{\"device_id\":\"%s\",\"distance_cm\":%.1f,\"water_level_percent\":%.1f,"
@@ -292,13 +281,13 @@ bool sendTelemetryPayload(float distance_cm, const TankCalculations& metrics) {
       Serial.println(response);
       success = true;
 
-      // Quick double-blink LED indicator on success
-      digitalWrite(STATUS_LED_PIN, LOW); delay(50);
-      digitalWrite(STATUS_LED_PIN, HIGH); delay(50);
-      digitalWrite(STATUS_LED_PIN, LOW); delay(50);
-      digitalWrite(STATUS_LED_PIN, HIGH);
+      // Quick double-blink LED indicator on successful packet delivery
+      digitalWrite(STATUS_LED_PIN, LED_OFF); delay(50);
+      digitalWrite(STATUS_LED_PIN, LED_ON);  delay(50);
+      digitalWrite(STATUS_LED_PIN, LED_OFF); delay(50);
+      digitalWrite(STATUS_LED_PIN, LED_ON);
     } else {
-      Serial.printf("[HTTP] Server returned error: %d\n", httpCode);
+      Serial.printf("[HTTP] Server returned error code: %d\n", httpCode);
       String errBody = http.getString();
       Serial.println(errBody);
     }
@@ -314,7 +303,7 @@ bool sendTelemetryPayload(float distance_cm, const TankCalculations& metrics) {
 // Arduino Standard Setup
 // ============================================================================
 void setup() {
-  Serial.begin(9600);
+  Serial.begin(115200);
   delay(1000);
 
   Serial.println();
@@ -324,7 +313,7 @@ void setup() {
   Serial.println("==================================================");
 
   pinMode(STATUS_LED_PIN, OUTPUT);
-  digitalWrite(STATUS_LED_PIN, LOW);
+  digitalWrite(STATUS_LED_PIN, LED_OFF);
 
   pinMode(TRIG_PIN, OUTPUT);
   pinMode(ECHO_PIN, INPUT);
@@ -339,11 +328,11 @@ void setup() {
 void loop() {
   unsigned long now = millis();
 
-  // Periodic Telemetry Send (Default: every 10 seconds)
+  // Periodic Telemetry Send (Every 10 seconds)
   if (now - lastSendMillis >= SEND_INTERVAL_MS || lastSendMillis == 0) {
     lastSendMillis = now;
 
-    // 1. Read ultrasonic sensor
+    // 1. Read ultrasonic sensor with median filter
     float distance = readUltrasonicDistance();
 
     Serial.println();
@@ -361,4 +350,3 @@ void loop() {
 
   delay(20);
 }
-
