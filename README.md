@@ -42,7 +42,7 @@ HydroSense IoT is an enterprise-grade, full-stack Internet of Things (IoT) water
                                |                         |                      |
                                v                         v                      v
                   +-------------------------------------------------------------------------+
-                  |                  Relational SQLite Database (WAL Mode)                  |
+                  |                  Pure JSON Database (Thread-Safe & Flat File)           |
                   |  - users        - tanks        - devices                                |
                   |  - telemetry    - alerts       - backup_records                         |
                   +-------------------------------------------------------------------------+
@@ -340,7 +340,7 @@ pip install -r requirements.txt
 ```bash
 python scripts/init_db.py --seed
 ```
-This initializes `data/water_leveler.db` with all 6 tables and default tanks.
+This initializes `data/database.json` with all default tanks and devices.
 
 ### Step 4: Configure WSGI File
 Navigate to the **Web** tab in PythonAnywhere dashboard. Click on your WSGI configuration file (`/var/www/waterlevelersphn_pythonanywhere_com_wsgi.py`) and replace its contents with:

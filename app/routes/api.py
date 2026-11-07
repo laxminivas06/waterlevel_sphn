@@ -481,15 +481,12 @@ def simulate_reading_v1():
 @api_bp.route("/v1/health", methods=["GET"])
 @api_bp.route("/health", methods=["GET"])
 def health_check_v1():
-    """Probes SQLite database and API operational status."""
+    """Probes JSON database and API operational status."""
     now_ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     try:
-        conn = get_db()
-        cursor = conn.cursor()
-        cursor.execute("SELECT COUNT(*) FROM tanks;")
-        tank_count = cursor.fetchone()[0]
-        cursor.execute("SELECT COUNT(*) FROM telemetry;")
-        telemetry_count = cursor.fetchone()[0]
+        db = get_db()
+        tank_count = len(db.get("tanks", []))
+        telemetry_count = len(db.get("telemetry", []))
 
         return jsonify({
             "status": "healthy",
@@ -575,7 +572,7 @@ def legacy_water_level_post():
 @api_bp.route("/water-level/latest", methods=["GET"])
 def legacy_water_level_current():
     """Legacy GET /api/water-level/current snapshot."""
-    req_device_id = request.args.get("device_id")
+    req_device_id = request.args.get("tank_id") or request.args.get("device_id")
     tanks = get_all_tanks()
 
     if req_device_id:

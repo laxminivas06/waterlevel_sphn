@@ -16,12 +16,12 @@ PROJECT_ROOT = BASE_DIR
 DATA_DIR = os.path.abspath(os.path.join(PROJECT_ROOT, "data"))
 BACKUP_DIR = os.path.abspath(os.path.join(PROJECT_ROOT, "backups"))
 
-# Database path resolution: Environment variable takes precedence, followed by canonical path
+# Database path resolution: Environment variable takes precedence, followed by canonical JSON path
 DATABASE_PATH = os.environ.get("DATABASE_PATH")
 if DATABASE_PATH:
-    DATABASE_PATH = os.path.abspath(DATABASE_PATH)
+    DATABASE_PATH = os.path.abspath(DATABASE_PATH) if DATABASE_PATH != ":memory:" else ":memory:"
 else:
-    DATABASE_PATH = os.path.abspath(os.path.join(DATA_DIR, "water_leveler.db"))
+    DATABASE_PATH = os.path.abspath(os.path.join(DATA_DIR, "database.json"))
 
 # Application Security & Defaults
 SECRET_KEY = os.environ.get("SECRET_KEY", "water_leveler_default_secret_key_2026")

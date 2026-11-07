@@ -21,12 +21,12 @@ Verifies all 12+ scenarios required by the specification:
 
 import json
 import os
-import sqlite3
 import tempfile
 import unittest
 from datetime import datetime, timedelta
 
 from app import create_app
+from app.database import get_db
 from app.models import (
     calculate_tank_physics,
     get_tank,
@@ -37,7 +37,7 @@ from app.models import (
     register_device,
     create_or_update_tank,
 )
-from scripts.init_db import apply_schema, seed_database, configure_pragmas
+from scripts.init_db import apply_schema, seed_database
 
 
 class HydroSenseTestCase(unittest.TestCase):
@@ -45,14 +45,12 @@ class HydroSenseTestCase(unittest.TestCase):
 
     def setUp(self):
         """Create a dedicated temporary database and test client for each test."""
-        self.db_fd, self.db_path = tempfile.mkstemp(suffix="_test_hydrosense.db")
-        
+        self.db_fd, self.db_path = tempfile.mkstemp(suffix="_test_hydrosense.json")
+        os.close(self.db_fd)
+
         # Initialize schema and seed data
-        conn = sqlite3.connect(self.db_path)
-        configure_pragmas(conn, self.db_path)
-        apply_schema(conn, quiet=True)
-        seed_database(conn, quiet=True)
-        conn.close()
+        db = get_db(self.db_path)
+        db.seed_defaults(reset=True)
 
         # Configure Flask test app
         self.app = create_app({
@@ -66,7 +64,6 @@ class HydroSenseTestCase(unittest.TestCase):
 
     def tearDown(self):
         """Close and remove temporary test database."""
-        os.close(self.db_fd)
         if os.path.exists(self.db_path):
             try:
                 os.remove(self.db_path)

@@ -1,0 +1,92 @@
+{
+  "users": [
+    {
+      "id": 1,
+      "username": "admin",
+      "password_hash": "pbkdf2:sha256:600000$hydrosense$admin",
+      "email": "admin@hydrosense.local",
+      "role": "admin",
+      "created_at": "2026-11-07 23:13:36"
+    }
+  ],
+  "tanks": [
+    {
+      "tank_id": "SV_BLOCK_OVER_TANK",
+      "tank_name": "SV Block Overhead Tank",
+      "shape": "cylinder",
+      "tank_height_cm": 200.0,
+      "sensor_offset_cm": 15.0,
+      "total_capacity_litres": 1000.0,
+      "radius_cm": 39.89,
+      "length_cm": null,
+      "width_cm": null,
+      "safe_max_percent": 95.0,
+      "critical_low_percent": 10.0,
+      "low_percent": 25.0,
+      "high_percent": 85.0,
+      "offline_threshold_seconds": 300,
+      "created_at": "2026-11-07 23:13:36",
+      "updated_at": "2026-11-07 23:13:36"
+    },
+    {
+      "tank_id": "GROUND_SUMP_TANK_01",
+      "tank_name": "Ground Sump Storage",
+      "shape": "rectangle",
+      "tank_height_cm": 180.0,
+      "sensor_offset_cm": 10.0,
+      "total_capacity_litres": 2500.0,
+      "length_cm": 150.0,
+      "width_cm": 100.0,
+      "radius_cm": null,
+      "safe_max_percent": 95.0,
+      "critical_low_percent": 10.0,
+      "low_percent": 25.0,
+      "high_percent": 85.0,
+      "offline_threshold_seconds": 300,
+      "created_at": "2026-11-07 23:13:36",
+      "updated_at": "2026-11-07 23:13:36"
+    }
+  ],
+  "devices": [
+    {
+      "device_id": "SV_BLOCK_OVER_TANK",
+      "device_name": "NodeMCU SV Overhead Sensor",
+      "tank_id": "SV_BLOCK_OVER_TANK",
+      "api_key": "water_secret_key_2026",
+      "ip_address": null,
+      "firmware_version": "2.1.0",
+      "created_at": "2026-11-07 23:13:36",
+      "last_seen": null,
+      "is_active": 1
+    },
+    {
+      "device_id": "esp32_tank_01",
+      "device_name": "ESP32 Sump Ultrasonic Monitor",
+      "tank_id": "GROUND_SUMP_TANK_01",
+      "api_key": "water_secret_key_2026",
+      "ip_address": null,
+      "firmware_version": "2.1.0",
+      "created_at": "2026-11-07 23:13:36",
+      "last_seen": null,
+      "is_active": 1
+    }
+  ],
+  "telemetry": [],
+  "alerts": [],
+  "backup_records": [],
+  "tank_settings": {
+    "id": 1,
+    "tank_height_cm": 200.0,
+    "total_height_cm": 200.0,
+    "sensor_offset_cm": 15.0,
+    "total_capacity_litres": 1000.0,
+    "warning_low_percent": 25.0,
+    "warning_normal_percent": 85.0,
+    "low_threshold_percent": 25.0,
+    "critical_low_threshold_percent": 10.0,
+    "offline_threshold_seconds": 300,
+    "updated_at": "2026-11-07 23:13:36"
+  },
+  "water_readings": [],
+  "backup_logs": []
+}

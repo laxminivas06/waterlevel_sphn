@@ -1,8 +1,8 @@
 """
 app/models.py - Comprehensive Data Access Layer (DAL) & Domain Logic
-HydroSense IoT - Smart Water Tank Monitoring System v2.0
+HydroSense IoT - Smart Water Tank Monitoring System v2.0 (Pure JSON Database Edition)
 
-Implements 100% parameterized queries for:
+Implements pure JSON flat-file storage for:
 - Tanks & Geometric Physical Calibrations (Cylindrical / Rectangular)
 - Devices, Registration, Assignment & Online/Offline Heartbeats
 - Real-time Telemetry Ingestion, Dynamic Status Classification & 15+ Day Analytics
@@ -10,39 +10,41 @@ Implements 100% parameterized queries for:
 - Backup Audit Logging & Legacy Backward-Compatibility Adapters
 """
 
+import copy
 from datetime import datetime, timedelta
 import json
 import math
-import sqlite3
 from typing import Any, Dict, List, Optional, Tuple, Union
 
-from app.database import get_db
+from app.database import get_db, JsonDatabase
 
 
 # ==============================================================================
 # 1. Tank Operations & Physics Calculations (Section 5, 6, 7)
 # ==============================================================================
 
-def get_tank(tank_id: str, db: Optional[sqlite3.Connection] = None) -> Optional[Dict[str, Any]]:
+def get_tank(tank_id: str, db: Optional[Any] = None) -> Optional[Dict[str, Any]]:
     """Retrieves a tank record by tank_id."""
-    conn = db or get_db()
-    cursor = conn.cursor()
-    cursor.execute("SELECT * FROM tanks WHERE tank_id = ?", (tank_id,))
-    row = cursor.fetchone()
-    return dict(row) if row else None
+    database = db if isinstance(db, JsonDatabase) else get_db()
+    tanks = database.get("tanks", [])
+    for t in tanks:
+        if t.get("tank_id") == tank_id:
+            return copy.deepcopy(t)
+    return None
 
 
-def get_all_tanks(db: Optional[sqlite3.Connection] = None) -> List[Dict[str, Any]]:
-    """Retrieves all registered tanks."""
-    conn = db or get_db()
-    cursor = conn.cursor()
-    cursor.execute("SELECT * FROM tanks ORDER BY created_at ASC")
-    return [dict(row) for row in cursor.fetchall()]
+def get_all_tanks(db: Optional[Any] = None) -> List[Dict[str, Any]]:
+    """Retrieves all registered tanks sorted by created_at."""
+    database = db if isinstance(db, JsonDatabase) else get_db()
+    tanks = database.get("tanks", [])
+    # Return copies sorted by created_at ASC
+    sorted_tanks = sorted(tanks, key=lambda x: str(x.get("created_at", "")))
+    return [copy.deepcopy(t) for t in sorted_tanks]
 
 
-def create_or_update_tank(tank_data: Dict[str, Any], db: Optional[sqlite3.Connection] = None) -> Dict[str, Any]:
+def create_or_update_tank(tank_data: Dict[str, Any], db: Optional[Any] = None) -> Dict[str, Any]:
     """Creates a new tank or updates an existing tank's geometry & thresholds idempotently."""
-    conn = db or get_db()
+    database = db if isinstance(db, JsonDatabase) else get_db()
     tank_id = str(tank_data.get("tank_id") or "").strip()
     if not tank_id:
         raise ValueError("tank_id is required and cannot be empty")
@@ -64,7 +66,6 @@ def create_or_update_tank(tank_data: Dict[str, Any], db: Optional[sqlite3.Connec
 
     # Auto-calculate dimensions if shape is provided without explicit dimensions
     if shape == "cylinder" and radius_cm is None and total_capacity > 0 and tank_height > 0:
-        # volume = pi * r^2 * h / 1000 => r = sqrt(volume * 1000 / (pi * h))
         radius_cm = round(math.sqrt((total_capacity * 1000.0) / (math.pi * tank_height)), 2)
     elif shape == "rectangle" and (length_cm is None or width_cm is None) and total_capacity > 0 and tank_height > 0:
         side = round(math.sqrt((total_capacity * 1000.0) / tank_height), 2)
@@ -73,49 +74,62 @@ def create_or_update_tank(tank_data: Dict[str, Any], db: Optional[sqlite3.Connec
 
     now_ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
-    cursor = conn.cursor()
-    cursor.execute(
-        """
-        INSERT INTO tanks (
-            tank_id, tank_name, shape, tank_height_cm, sensor_offset_cm,
-            total_capacity_litres, length_cm, width_cm, radius_cm,
-            safe_max_percent, critical_low_percent, low_percent, high_percent,
-            offline_threshold_seconds, created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        ON CONFLICT(tank_id) DO UPDATE SET
-            tank_name = excluded.tank_name,
-            shape = excluded.shape,
-            tank_height_cm = excluded.tank_height_cm,
-            sensor_offset_cm = excluded.sensor_offset_cm,
-            total_capacity_litres = excluded.total_capacity_litres,
-            length_cm = excluded.length_cm,
-            width_cm = excluded.width_cm,
-            radius_cm = excluded.radius_cm,
-            safe_max_percent = excluded.safe_max_percent,
-            critical_low_percent = excluded.critical_low_percent,
-            low_percent = excluded.low_percent,
-            high_percent = excluded.high_percent,
-            offline_threshold_seconds = excluded.offline_threshold_seconds,
-            updated_at = excluded.updated_at
-        """,
-        (
-            tank_id, tank_name, shape, tank_height, sensor_offset,
-            total_capacity, length_cm, width_cm, radius_cm,
-            safe_max_pct, crit_low_pct, low_pct, high_pct,
-            offline_thresh, now_ts, now_ts
-        )
-    )
-    conn.commit()
-    return get_tank(tank_id, db=conn) or {}
+    tanks = database.get("tanks", [])
+    found_idx = None
+    for idx, t in enumerate(tanks):
+        if t.get("tank_id") == tank_id:
+            found_idx = idx
+            break
+
+    if found_idx is not None:
+        existing = tanks[found_idx]
+        existing.update({
+            "tank_name": tank_name,
+            "shape": shape,
+            "tank_height_cm": tank_height,
+            "sensor_offset_cm": sensor_offset,
+            "total_capacity_litres": total_capacity,
+            "length_cm": length_cm,
+            "width_cm": width_cm,
+            "radius_cm": radius_cm,
+            "safe_max_percent": safe_max_pct,
+            "critical_low_percent": crit_low_pct,
+            "low_percent": low_pct,
+            "high_percent": high_pct,
+            "offline_threshold_seconds": offline_thresh,
+            "updated_at": now_ts,
+        })
+        database.save()
+        return copy.deepcopy(existing)
+    else:
+        new_tank = {
+            "tank_id": tank_id,
+            "tank_name": tank_name,
+            "shape": shape,
+            "tank_height_cm": tank_height,
+            "sensor_offset_cm": sensor_offset,
+            "total_capacity_litres": total_capacity,
+            "length_cm": length_cm,
+            "width_cm": width_cm,
+            "radius_cm": radius_cm,
+            "safe_max_percent": safe_max_pct,
+            "critical_low_percent": crit_low_pct,
+            "low_percent": low_pct,
+            "high_percent": high_pct,
+            "offline_threshold_seconds": offline_thresh,
+            "created_at": now_ts,
+            "updated_at": now_ts,
+        }
+        tanks.append(new_tank)
+        database.save()
+        return copy.deepcopy(new_tank)
 
 
-def delete_tank(tank_id: str, db: Optional[sqlite3.Connection] = None) -> bool:
+def delete_tank(tank_id: str, db: Optional[Any] = None) -> bool:
     """Deletes a tank record by tank_id."""
-    conn = db or get_db()
-    cursor = conn.cursor()
-    cursor.execute("DELETE FROM tanks WHERE tank_id = ?", (tank_id,))
-    conn.commit()
-    return cursor.rowcount > 0
+    database = db if isinstance(db, JsonDatabase) else get_db()
+    deleted = database.delete("tanks", lambda t: t.get("tank_id") == tank_id)
+    return deleted > 0
 
 
 def calculate_tank_physics(
@@ -208,7 +222,6 @@ def calculate_tank_physics(
     elif pct < safe_max_pct:
         status = "HIGH"
     else:
-        # Exceeds safe operating limit
         status = "HIGH"
 
     return {
@@ -229,24 +242,26 @@ def calculate_tank_physics(
 # 2. Device Operations (Section 3, 9)
 # ==============================================================================
 
-def get_device(device_id: str, db: Optional[sqlite3.Connection] = None) -> Optional[Dict[str, Any]]:
+def get_device(device_id: str, db: Optional[Any] = None) -> Optional[Dict[str, Any]]:
     """Retrieves a device record by device_id."""
-    conn = db or get_db()
-    cursor = conn.cursor()
-    cursor.execute("SELECT * FROM devices WHERE device_id = ?", (device_id,))
-    row = cursor.fetchone()
-    return dict(row) if row else None
+    database = db if isinstance(db, JsonDatabase) else get_db()
+    devices = database.get("devices", [])
+    for d in devices:
+        if d.get("device_id") == device_id:
+            return copy.deepcopy(d)
+    return None
 
 
-def get_all_devices(active_only: bool = False, db: Optional[sqlite3.Connection] = None) -> List[Dict[str, Any]]:
+def get_all_devices(active_only: bool = False, db: Optional[Any] = None) -> List[Dict[str, Any]]:
     """Returns all registered devices."""
-    conn = db or get_db()
-    cursor = conn.cursor()
+    database = db if isinstance(db, JsonDatabase) else get_db()
+    devices = database.get("devices", [])
     if active_only:
-        cursor.execute("SELECT * FROM devices WHERE is_active = 1 ORDER BY created_at ASC")
+        filtered = [d for d in devices if d.get("is_active") == 1]
     else:
-        cursor.execute("SELECT * FROM devices ORDER BY created_at ASC")
-    return [dict(row) for row in cursor.fetchall()]
+        filtered = devices
+    sorted_devs = sorted(filtered, key=lambda x: str(x.get("created_at", "")))
+    return [copy.deepcopy(d) for d in sorted_devs]
 
 
 def register_device(
@@ -257,74 +272,84 @@ def register_device(
     ip_address: Optional[str] = None,
     firmware_version: Optional[str] = "2.0.0",
     is_active: int = 1,
-    db: Optional[sqlite3.Connection] = None
+    db: Optional[Any] = None
 ) -> Dict[str, Any]:
     """Registers a new device or updates an existing device credentials idempotently."""
-    conn = db or get_db()
-    cursor = conn.cursor()
+    database = db if isinstance(db, JsonDatabase) else get_db()
     now_ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
     # If tank_id is supplied, verify tank exists; if not, auto-create matching tank
     if tank_id:
-        t = get_tank(tank_id, db=conn)
+        t = get_tank(tank_id, db=database)
         if not t:
-            create_or_update_tank({"tank_id": tank_id, "tank_name": tank_id.replace("_", " ").title()}, db=conn)
+            create_or_update_tank({"tank_id": tank_id, "tank_name": tank_id.replace("_", " ").title()}, db=database)
     else:
-        # Check if device_id matches a tank
-        t = get_tank(device_id, db=conn)
+        t = get_tank(device_id, db=database)
         if t:
             tank_id = device_id
 
-    cursor.execute(
-        """
-        INSERT INTO devices (device_id, device_name, tank_id, api_key, ip_address, firmware_version, is_active, created_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-        ON CONFLICT(device_id) DO UPDATE SET
-            device_name = excluded.device_name,
-            tank_id = COALESCE(excluded.tank_id, devices.tank_id),
-            api_key = excluded.api_key,
-            ip_address = COALESCE(excluded.ip_address, devices.ip_address),
-            firmware_version = COALESCE(excluded.firmware_version, devices.firmware_version),
-            is_active = excluded.is_active
-        """,
-        (device_id, device_name, tank_id, api_key, ip_address, firmware_version, is_active, now_ts)
-    )
-    conn.commit()
-    device = get_device(device_id, db=conn)
-    return device or {"device_id": device_id, "device_name": device_name, "api_key": api_key}
+    devices = database.get("devices", [])
+    found = None
+    for d in devices:
+        if d.get("device_id") == device_id:
+            found = d
+            break
+
+    if found is not None:
+        found["device_name"] = device_name
+        if tank_id is not None:
+            found["tank_id"] = tank_id
+        found["api_key"] = api_key
+        if ip_address is not None:
+            found["ip_address"] = ip_address
+        if firmware_version is not None:
+            found["firmware_version"] = firmware_version
+        found["is_active"] = is_active
+        database.save()
+        return copy.deepcopy(found)
+    else:
+        new_dev = {
+            "device_id": device_id,
+            "device_name": device_name,
+            "tank_id": tank_id,
+            "api_key": api_key,
+            "ip_address": ip_address,
+            "firmware_version": firmware_version,
+            "is_active": is_active,
+            "created_at": now_ts,
+            "last_seen": None,
+        }
+        devices.append(new_dev)
+        database.save()
+        return copy.deepcopy(new_dev)
 
 
-def get_device_with_status(device_id: str, offline_threshold: int = 300, db: Optional[sqlite3.Connection] = None) -> Optional[Dict[str, Any]]:
+def get_device_with_status(device_id: str, offline_threshold: int = 300, db: Optional[Any] = None) -> Optional[Dict[str, Any]]:
     """Calculates online/offline state and seconds_since_last_seen."""
-    conn = db or get_db()
-    cursor = conn.cursor()
-    cursor.execute(
-        """
-        SELECT
-            device_id, device_name, tank_id, api_key, ip_address, firmware_version,
-            created_at, last_seen, is_active,
-            CASE
-                WHEN last_seen IS NULL THEN NULL
-                ELSE CAST(strftime('%s', 'now', 'localtime') - strftime('%s', last_seen) AS INTEGER)
-            END AS seconds_since_last_seen
-        FROM devices
-        WHERE device_id = ?
-        """,
-        (device_id,),
-    )
-    row = cursor.fetchone()
-    if not row:
+    database = db if isinstance(db, JsonDatabase) else get_db()
+    dev = get_device(device_id, db=database)
+    if not dev:
         return None
 
-    dev = dict(row)
-    raw_diff = dev.get("seconds_since_last_seen")
-    if dev.get("last_seen") is None or raw_diff is None:
+    last_seen_str = dev.get("last_seen")
+    if not last_seen_str:
         dev["status"] = "offline"
         dev["seconds_since_last_seen"] = None
-    else:
-        is_online = (raw_diff <= offline_threshold)
+        return dev
+
+    try:
+        # Parse last seen timestamp
+        clean_ts = last_seen_str.replace("T", " ")[:19]
+        last_seen_dt = datetime.strptime(clean_ts, "%Y-%m-%d %H:%M:%S")
+        diff_sec = int((datetime.now() - last_seen_dt).total_seconds())
+        diff_sec = max(0, diff_sec)
+
+        is_online = (diff_sec <= offline_threshold)
         dev["status"] = "online" if is_online else "offline"
-        dev["seconds_since_last_seen"] = max(0, int(raw_diff))
+        dev["seconds_since_last_seen"] = diff_sec
+    except Exception:
+        dev["status"] = "offline"
+        dev["seconds_since_last_seen"] = None
 
     return dev
 
@@ -333,30 +358,29 @@ def get_device_with_status(device_id: str, offline_threshold: int = 300, db: Opt
 # 3. Telemetry Ingestion & Analytics (Section 3, 5, 8, 10, 11)
 # ==============================================================================
 
-def insert_telemetry(payload: Dict[str, Any], db: Optional[sqlite3.Connection] = None) -> Dict[str, Any]:
+def insert_telemetry(payload: Dict[str, Any], db: Optional[Any] = None) -> Dict[str, Any]:
     """
     Ingests and validates a telemetry packet from ESP8266/ESP32.
     Computes/validates tank physics, writes to telemetry & legacy water_readings,
     updates device last_seen, and generates real-time alerts if necessary.
     """
-    conn = db or get_db()
+    database = db if isinstance(db, JsonDatabase) else get_db()
     device_id = str(payload.get("device_id") or "").strip()
     if not device_id:
         raise ValueError("Missing device_id in telemetry payload.")
 
     # Auto-resolve or create device if unknown
-    device = get_device(device_id, db=conn)
+    device = get_device(device_id, db=database)
     if not device:
         api_key = payload.get("api_key") or "water_secret_key_2026"
-        register_device(device_id, api_key, device_id.replace("_", " ").title(), db=conn)
-        device = get_device(device_id, db=conn)
+        register_device(device_id, api_key, device_id.replace("_", " ").title(), db=database)
+        device = get_device(device_id, db=database)
 
-    tank_id = payload.get("tank_id") or device.get("tank_id") or device_id
-    tank = get_tank(tank_id, db=conn)
+    tank_id = payload.get("tank_id") or (device.get("tank_id") if device else None) or device_id
+    tank = get_tank(tank_id, db=database)
     if not tank:
-        # Auto-create tank matching device
-        create_or_update_tank({"tank_id": tank_id, "tank_name": tank_id.replace("_", " ").title()}, db=conn)
-        tank = get_tank(tank_id, db=conn)
+        create_or_update_tank({"tank_id": tank_id, "tank_name": tank_id.replace("_", " ").title()}, db=database)
+        tank = get_tank(tank_id, db=database)
 
     # Calculate physics metrics
     distance_cm = float(payload.get("distance_cm") or 0.0)
@@ -371,48 +395,43 @@ def insert_telemetry(payload: Dict[str, Any], db: Optional[sqlite3.Connection] =
     timestamp = payload.get("timestamp") or now_ts
     date_str = timestamp[:10]
 
-    cursor = conn.cursor()
-    cursor.execute(
-        """
-        INSERT INTO telemetry (
-            device_id, tank_id, distance_cm, water_height,
-            water_percentage, water_volume, status, timestamp, date, raw_payload
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """,
-        (
-            device_id, tank_id, metrics["distance_cm"], metrics["water_height"],
-            metrics["water_percentage"], metrics["water_volume"], metrics["status"],
-            timestamp, date_str, json.dumps(payload)
-        )
-    )
-    reading_id = cursor.lastrowid
+    record = {
+        "device_id": device_id,
+        "tank_id": tank_id,
+        "distance_cm": metrics["distance_cm"],
+        "water_height": metrics["water_height"],
+        "water_percentage": metrics["water_percentage"],
+        "water_volume": metrics["water_volume"],
+        "status": metrics["status"],
+        "timestamp": timestamp,
+        "date": date_str,
+        "raw_payload": json.dumps(payload),
+    }
+    reading_id = database.insert("telemetry", record)
 
-    # Update device last_seen and optional IP
+    # Update device last_seen and ip_address
     ip_addr = payload.get("ip_address")
-    if ip_addr:
-        cursor.execute("UPDATE devices SET last_seen = ?, ip_address = ? WHERE device_id = ?", (timestamp, ip_addr, device_id))
-    else:
-        cursor.execute("UPDATE devices SET last_seen = ? WHERE device_id = ?", (timestamp, device_id))
+    devices = database.get("devices", [])
+    for d in devices:
+        if d.get("device_id") == device_id:
+            d["last_seen"] = timestamp
+            if ip_addr:
+                d["ip_address"] = ip_addr
+            break
 
-    # Mirror to legacy water_readings for zero-breakage backward compatibility
-    try:
-        cursor.execute(
-            """
-            INSERT INTO water_readings (
-                device_id, distance_cm, water_level_cm, water_percentage,
-                water_litres, timestamp, date, raw_reading_json
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-            (
-                device_id, metrics["distance_cm"], metrics["water_height"],
-                metrics["water_percentage"], metrics["water_volume"],
-                timestamp, date_str, json.dumps(payload)
-            )
-        )
-    except Exception:
-        pass
-
-    conn.commit()
+    # Mirror to legacy water_readings
+    legacy_record = {
+        "device_id": device_id,
+        "distance_cm": metrics["distance_cm"],
+        "water_level_cm": metrics["water_height"],
+        "water_percentage": metrics["water_percentage"],
+        "water_litres": metrics["water_volume"],
+        "timestamp": timestamp,
+        "date": date_str,
+        "raw_reading_json": json.dumps(payload),
+    }
+    database.insert("water_readings", legacy_record)
+    database.save()
 
     # Automated Alert Triggering (Section 7)
     if metrics["status"] == "OVERLOADED":
@@ -422,7 +441,7 @@ def insert_telemetry(payload: Dict[str, Any], db: Optional[sqlite3.Connection] =
             alert_type="OVERFLOW_RISK",
             severity="critical",
             message=f"Tank '{tank.get('tank_name', tank_id)}' is OVERLOADED! Water level at {metrics['water_percentage']}% ({metrics['water_volume']}L).",
-            db=conn,
+            db=database,
         )
     elif metrics["status"] == "CRITICAL LOW":
         create_alert(
@@ -431,7 +450,7 @@ def insert_telemetry(payload: Dict[str, Any], db: Optional[sqlite3.Connection] =
             alert_type="CRITICAL_LOW",
             severity="critical",
             message=f"Tank '{tank.get('tank_name', tank_id)}' is at CRITICAL LOW level ({metrics['water_percentage']}%). Risk of pump dry run.",
-            db=conn,
+            db=database,
         )
     elif metrics["status"] == "SENSOR FAULT":
         create_alert(
@@ -440,7 +459,7 @@ def insert_telemetry(payload: Dict[str, Any], db: Optional[sqlite3.Connection] =
             alert_type="SENSOR_FAULT",
             severity="warning",
             message=f"Abnormal distance reading ({distance_cm} cm) detected from sensor on device '{device_id}'.",
-            db=conn,
+            db=database,
         )
 
     reading_payload = {
@@ -480,18 +499,23 @@ def insert_telemetry(payload: Dict[str, Any], db: Optional[sqlite3.Connection] =
     }
 
 
-def get_latest_telemetry(tank_id: Optional[str] = None, device_id: Optional[str] = None, db: Optional[sqlite3.Connection] = None) -> Optional[Dict[str, Any]]:
+def get_latest_telemetry(tank_id: Optional[str] = None, device_id: Optional[str] = None, db: Optional[Any] = None) -> Optional[Dict[str, Any]]:
     """Retrieves the latest telemetry record for a tank or device."""
-    conn = db or get_db()
-    cursor = conn.cursor()
+    database = db if isinstance(db, JsonDatabase) else get_db()
+    telemetry = database.get("telemetry", [])
+
+    candidates = telemetry
     if tank_id:
-        cursor.execute("SELECT * FROM telemetry WHERE tank_id = ? ORDER BY timestamp DESC, id DESC LIMIT 1", (tank_id,))
+        candidates = [t for t in candidates if t.get("tank_id") == tank_id]
     elif device_id:
-        cursor.execute("SELECT * FROM telemetry WHERE device_id = ? ORDER BY timestamp DESC, id DESC LIMIT 1", (device_id,))
-    else:
-        cursor.execute("SELECT * FROM telemetry ORDER BY timestamp DESC, id DESC LIMIT 1")
-    row = cursor.fetchone()
-    return dict(row) if row else None
+        candidates = [t for t in candidates if t.get("device_id") == device_id]
+
+    if not candidates:
+        return None
+
+    # Sort descending by timestamp, id
+    candidates = sorted(candidates, key=lambda x: (str(x.get("timestamp", "")), int(x.get("id") or 0)), reverse=True)
+    return copy.deepcopy(candidates[0])
 
 
 def get_tank_history(
@@ -500,14 +524,14 @@ def get_tank_history(
     start_date: Optional[str] = None,
     end_date: Optional[str] = None,
     limit: Optional[int] = 500,
-    db: Optional[sqlite3.Connection] = None,
+    db: Optional[Any] = None,
 ) -> Dict[str, Any]:
     """
     Retrieves time-series telemetry records and summary statistics for a given range (24h, 7d, 15d, custom).
     Calculates min, max, avg, and consumption/drawdown estimates.
     """
-    conn = db or get_db()
-    cursor = conn.cursor()
+    database = db if isinstance(db, JsonDatabase) else get_db()
+    telemetry = database.get("telemetry", [])
 
     now = datetime.now()
     if range_key == "24h":
@@ -526,18 +550,17 @@ def get_tank_history(
         start_ts = (now - timedelta(days=15)).strftime("%Y-%m-%d %H:%M:%S")
         end_ts = now.strftime("%Y-%m-%d %H:%M:%S")
 
-    cursor.execute(
-        """
-        SELECT id, device_id, tank_id, distance_cm, water_height,
-               water_percentage, water_volume, status, timestamp, date
-        FROM telemetry
-        WHERE tank_id = ? AND timestamp >= ? AND timestamp <= ?
-        ORDER BY timestamp ASC
-        LIMIT ?
-        """,
-        (tank_id, start_ts, end_ts, limit or 1000)
-    )
-    rows = [dict(r) for r in cursor.fetchall()]
+    filtered = [
+        t for t in telemetry
+        if t.get("tank_id") == tank_id and start_ts <= str(t.get("timestamp", "")) <= end_ts
+    ]
+
+    # Sort chronological (ascending)
+    filtered = sorted(filtered, key=lambda x: (str(x.get("timestamp", "")), int(x.get("id") or 0)))
+    if limit:
+        filtered = filtered[:limit]
+
+    rows = [copy.deepcopy(r) for r in filtered]
 
     if not rows:
         return {
@@ -557,10 +580,9 @@ def get_tank_history(
             "data": [],
         }
 
-    pcts = [r["water_percentage"] for r in rows]
-    vols = [r["water_volume"] for r in rows]
+    pcts = [float(r.get("water_percentage", 0.0)) for r in rows]
+    vols = [float(r.get("water_volume", 0.0)) for r in rows]
 
-    # Calculate consumption (cumulative volume drops)
     consumption = 0.0
     for i in range(1, len(vols)):
         diff = vols[i - 1] - vols[i]
@@ -606,7 +628,7 @@ def get_tank_history(
     }
 
 
-def get_system_summary(db: Optional[sqlite3.Connection] = None) -> Dict[str, Any]:
+def get_system_summary(db: Optional[Any] = None) -> Dict[str, Any]:
     """
     Computes overall KPI dashboard scorecard:
     - Total tanks
@@ -616,16 +638,14 @@ def get_system_summary(db: Optional[sqlite3.Connection] = None) -> Dict[str, Any
     - Total available water in litres
     - Active critical alerts count
     """
-    conn = db or get_db()
-    cursor = conn.cursor()
-
-    tanks = get_all_tanks(db=conn)
-    devices = get_all_devices(db=conn)
+    database = db if isinstance(db, JsonDatabase) else get_db()
+    tanks = get_all_tanks(db=database)
+    devices = get_all_devices(db=database)
 
     online_count = 0
     offline_count = 0
     for dev in devices:
-        enriched = get_device_with_status(dev["device_id"], db=conn)
+        enriched = get_device_with_status(dev["device_id"], db=database)
         if enriched and enriched.get("status") == "online":
             online_count += 1
         else:
@@ -636,7 +656,7 @@ def get_system_summary(db: Optional[sqlite3.Connection] = None) -> Dict[str, Any
     level_pcts = []
 
     for t in tanks:
-        latest = get_latest_telemetry(tank_id=t["tank_id"], db=conn)
+        latest = get_latest_telemetry(tank_id=t["tank_id"], db=database)
         cap = float(t.get("total_capacity_litres", 1000.0))
         total_capacity += cap
         if latest:
@@ -645,9 +665,8 @@ def get_system_summary(db: Optional[sqlite3.Connection] = None) -> Dict[str, Any
 
     avg_pct = round(sum(level_pcts) / len(level_pcts), 2) if level_pcts else 0.0
 
-    # Active alerts count
-    cursor.execute("SELECT COUNT(*) FROM alerts WHERE is_acknowledged = 0 AND severity = 'critical'")
-    crit_alerts = cursor.fetchone()[0]
+    alerts = database.get("alerts", [])
+    crit_alerts = sum(1 for a in alerts if int(a.get("is_acknowledged", 0)) == 0 and a.get("severity") == "critical")
 
     return {
         "total_tanks": len(tanks),
@@ -672,149 +691,142 @@ def create_alert(
     alert_type: str,
     severity: str,
     message: str,
-    db: Optional[sqlite3.Connection] = None
+    db: Optional[Any] = None
 ) -> int:
     """Creates a new operational alert if an identical active alert does not exist within the last 10 minutes."""
-    conn = db or get_db()
-    cursor = conn.cursor()
+    database = db if isinstance(db, JsonDatabase) else get_db()
+    now_dt = datetime.now()
+    now_ts = now_dt.strftime("%Y-%m-%d %H:%M:%S")
+    ten_mins_ago = (now_dt - timedelta(minutes=10)).strftime("%Y-%m-%d %H:%M:%S")
 
-    # Debounce duplicate alerts within 10 minutes
-    ten_mins_ago = (datetime.now() - timedelta(minutes=10)).strftime("%Y-%m-%d %H:%M:%S")
-    cursor.execute(
-        """
-        SELECT id FROM alerts
-        WHERE tank_id = ? AND alert_type = ? AND is_acknowledged = 0 AND timestamp >= ?
-        """,
-        (tank_id, alert_type, ten_mins_ago)
-    )
-    if cursor.fetchone():
-        return 0
+    alerts = database.get("alerts", [])
+    # Debounce duplicate unacknowledged alerts within 10 minutes
+    for a in alerts:
+        if (
+            a.get("tank_id") == tank_id
+            and a.get("alert_type") == alert_type
+            and int(a.get("is_acknowledged", 0)) == 0
+            and str(a.get("timestamp", "")) >= ten_mins_ago
+        ):
+            return 0
 
-    now_ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    cursor.execute(
-        """
-        INSERT INTO alerts (tank_id, device_id, alert_type, severity, message, is_acknowledged, timestamp)
-        VALUES (?, ?, ?, ?, ?, 0, ?)
-        """,
-        (tank_id, device_id, alert_type, severity, message, now_ts)
-    )
-    conn.commit()
-    return cursor.lastrowid or 0
+    record = {
+        "tank_id": tank_id,
+        "device_id": device_id,
+        "alert_type": alert_type,
+        "severity": severity,
+        "message": message,
+        "is_acknowledged": 0,
+        "acknowledged_at": None,
+        "timestamp": now_ts,
+    }
+    alert_id = database.insert("alerts", record)
+    return alert_id
 
 
-def get_alerts(tank_id: Optional[str] = None, unacknowledged_only: bool = True, limit: int = 50, db: Optional[sqlite3.Connection] = None) -> List[Dict[str, Any]]:
+def get_alerts(tank_id: Optional[str] = None, unacknowledged_only: bool = True, limit: int = 50, db: Optional[Any] = None) -> List[Dict[str, Any]]:
     """Retrieves system alerts with optional filters."""
-    conn = db or get_db()
-    cursor = conn.cursor()
-    query = "SELECT * FROM alerts"
-    params = []
-    conditions = []
+    database = db if isinstance(db, JsonDatabase) else get_db()
+    alerts = database.get("alerts", [])
 
+    filtered = alerts
     if tank_id:
-        conditions.append("tank_id = ?")
-        params.append(tank_id)
+        filtered = [a for a in filtered if a.get("tank_id") == tank_id]
     if unacknowledged_only:
-        conditions.append("is_acknowledged = 0")
+        filtered = [a for a in filtered if int(a.get("is_acknowledged", 0)) == 0]
 
-    if conditions:
-        query += " WHERE " + " AND ".join(conditions)
-
-    query += " ORDER BY timestamp DESC, id DESC LIMIT ?"
-    params.append(limit)
-
-    cursor.execute(query, tuple(params))
-    return [dict(r) for r in cursor.fetchall()]
+    # Sort descending by timestamp, id
+    filtered = sorted(filtered, key=lambda x: (str(x.get("timestamp", "")), int(x.get("id") or 0)), reverse=True)
+    return [copy.deepcopy(a) for a in filtered[:limit]]
 
 
-def acknowledge_alert(alert_id: int, db: Optional[sqlite3.Connection] = None) -> bool:
+def acknowledge_alert(alert_id: int, db: Optional[Any] = None) -> bool:
     """Marks an alert as acknowledged."""
-    conn = db or get_db()
-    cursor = conn.cursor()
+    database = db if isinstance(db, JsonDatabase) else get_db()
     now_ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    cursor.execute("UPDATE alerts SET is_acknowledged = 1, acknowledged_at = ? WHERE id = ?", (now_ts, alert_id))
-    conn.commit()
-    return cursor.rowcount > 0
+    count = database.update(
+        "alerts",
+        lambda a: int(a.get("id") or 0) == alert_id,
+        {"is_acknowledged": 1, "acknowledged_at": now_ts}
+    )
+    return count > 0
 
 
 # ==============================================================================
 # 5. Backup Records (Section 11)
 # ==============================================================================
 
-def record_backup(filename: str, file_path: str, record_count: int, file_size_bytes: int, backup_type: str = "automated", status: str = "success", notes: Optional[str] = None, db: Optional[sqlite3.Connection] = None) -> int:
+def record_backup(
+    filename: str,
+    file_path: str,
+    record_count: int,
+    file_size_bytes: int,
+    backup_type: str = "automated",
+    status: str = "success",
+    notes: Optional[str] = None,
+    db: Optional[Any] = None
+) -> int:
     """Records an automated or manual backup execution."""
-    conn = db or get_db()
-    cursor = conn.cursor()
+    database = db if isinstance(db, JsonDatabase) else get_db()
     now_ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    cursor.execute(
-        """
-        INSERT INTO backup_records (filename, file_path, record_count, file_size_bytes, backup_type, status, created_at, notes)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-        """,
-        (filename, file_path, record_count, file_size_bytes, backup_type, status, now_ts, notes)
-    )
-    conn.commit()
-    return cursor.lastrowid or 0
+    record = {
+        "filename": filename,
+        "file_path": file_path,
+        "record_count": record_count,
+        "file_size_bytes": file_size_bytes,
+        "backup_type": backup_type,
+        "status": status,
+        "created_at": now_ts,
+        "notes": notes,
+    }
+    return database.insert("backup_records", record)
 
 
-def get_backups(limit: int = 30, db: Optional[sqlite3.Connection] = None) -> List[Dict[str, Any]]:
+def get_backups(limit: int = 30, db: Optional[Any] = None) -> List[Dict[str, Any]]:
     """Retrieves recent database backup logs."""
-    conn = db or get_db()
-    cursor = conn.cursor()
-    cursor.execute("SELECT * FROM backup_records ORDER BY created_at DESC LIMIT ?", (limit,))
-    return [dict(r) for r in cursor.fetchall()]
+    database = db if isinstance(db, JsonDatabase) else get_db()
+    backups = database.get("backup_records", [])
+    sorted_backups = sorted(backups, key=lambda x: str(x.get("created_at", "")), reverse=True)
+    return [copy.deepcopy(b) for b in sorted_backups[:limit]]
 
 
-def get_backup_logs(limit: int = 50, db: Optional[sqlite3.Connection] = None) -> List[Dict[str, Any]]:
+def get_backup_logs(limit: int = 50, db: Optional[Any] = None) -> List[Dict[str, Any]]:
     """Compatibility adapter for backup_routes."""
-    conn = db or get_db()
-    cursor = conn.cursor()
-    try:
-        cursor.execute("SELECT * FROM backup_records ORDER BY created_at DESC LIMIT ?", (limit,))
-        rows = cursor.fetchall()
-        if rows:
-            return [dict(r) for r in rows]
-    except Exception:
-        pass
-    try:
-        cursor.execute("SELECT * FROM backup_logs ORDER BY created_at DESC LIMIT ?", (limit,))
-        return [dict(r) for r in cursor.fetchall()]
-    except Exception:
-        return []
+    database = db if isinstance(db, JsonDatabase) else get_db()
+    records = database.get("backup_records", [])
+    if records:
+        sorted_records = sorted(records, key=lambda x: str(x.get("created_at", "")), reverse=True)
+        return [copy.deepcopy(r) for r in sorted_records[:limit]]
+    logs = database.get("backup_logs", [])
+    sorted_logs = sorted(logs, key=lambda x: str(x.get("created_at", "")), reverse=True)
+    return [copy.deepcopy(l) for l in sorted_logs[:limit]]
 
 
-def insert_backup_log(log_dict: Dict[str, Any], db: Optional[sqlite3.Connection] = None) -> int:
+def insert_backup_log(log_dict: Dict[str, Any], db: Optional[Any] = None) -> int:
     """Compatibility adapter for backup logging."""
-    conn = db or get_db()
-    cursor = conn.cursor()
+    database = db if isinstance(db, JsonDatabase) else get_db()
     now_ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    cursor.execute(
-        """
-        INSERT INTO backup_records (filename, file_path, record_count, file_size_bytes, backup_type, status, created_at, notes)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-        """,
-        (
-            log_dict.get("filename", "backup"),
-            log_dict.get("file_path", ""),
-            log_dict.get("record_count") or log_dict.get("records_count", 0),
-            log_dict.get("file_size_bytes", 0),
-            log_dict.get("backup_type", "manual"),
-            log_dict.get("status", "success"),
-            now_ts,
-            log_dict.get("notes") or log_dict.get("error_message")
-        )
-    )
-    conn.commit()
-    return cursor.lastrowid or 0
+    record = {
+        "filename": log_dict.get("filename", "backup"),
+        "file_path": log_dict.get("file_path", ""),
+        "record_count": log_dict.get("record_count") or log_dict.get("records_count", 0),
+        "file_size_bytes": log_dict.get("file_size_bytes", 0),
+        "backup_type": log_dict.get("backup_type", "manual"),
+        "status": log_dict.get("status", "success"),
+        "created_at": now_ts,
+        "notes": log_dict.get("notes") or log_dict.get("error_message"),
+    }
+    return database.insert("backup_records", record)
 
 
 # ==============================================================================
 # 6. Legacy Backward-Compatibility Adapters
 # ==============================================================================
 
-def get_tank_settings(db: Optional[sqlite3.Connection] = None) -> Dict[str, Any]:
+def get_tank_settings(db: Optional[Any] = None) -> Dict[str, Any]:
     """Compatibility adapter for legacy singleton settings route."""
-    conn = db or get_db()
-    tanks = get_all_tanks(db=conn)
+    database = db if isinstance(db, JsonDatabase) else get_db()
+    tanks = get_all_tanks(db=database)
     if tanks:
         t = tanks[0]
         return {
@@ -843,12 +855,12 @@ def get_tank_settings(db: Optional[sqlite3.Connection] = None) -> Dict[str, Any]
     }
 
 
-def update_tank_settings(settings_dict: Dict[str, Any], db: Optional[sqlite3.Connection] = None) -> Dict[str, Any]:
+def update_tank_settings(settings_dict: Dict[str, Any], db: Optional[Any] = None) -> Dict[str, Any]:
     """Updates tank settings across both multi-tank and legacy tables."""
-    conn = db or get_db()
-    tanks = get_all_tanks(db=conn)
+    database = db if isinstance(db, JsonDatabase) else get_db()
+    tanks = get_all_tanks(db=database)
     target_tank_id = tanks[0]["tank_id"] if tanks else "SV_BLOCK_OVER_TANK"
-    
+
     data = {
         "tank_id": target_tank_id,
         "tank_height_cm": settings_dict.get("tank_height_cm") or settings_dict.get("total_height_cm"),
@@ -859,16 +871,16 @@ def update_tank_settings(settings_dict: Dict[str, Any], db: Optional[sqlite3.Con
         "high_percent": settings_dict.get("warning_normal_percent"),
         "offline_threshold_seconds": settings_dict.get("offline_threshold_seconds"),
     }
-    create_or_update_tank(data, db=conn)
-    return get_tank_settings(db=conn)
+    create_or_update_tank(data, db=database)
+    return get_tank_settings(db=database)
 
 
-def insert_water_reading(reading_data: Dict[str, Any], db: Optional[sqlite3.Connection] = None) -> Dict[str, Any]:
+def insert_water_reading(reading_data: Dict[str, Any], db: Optional[Any] = None) -> Dict[str, Any]:
     """Compatibility adapter for legacy insert_water_reading calls."""
     return insert_telemetry(reading_data, db=db)
 
 
-def get_latest_reading(device_id: Optional[str] = None, db: Optional[sqlite3.Connection] = None) -> Optional[Dict[str, Any]]:
+def get_latest_reading(device_id: Optional[str] = None, db: Optional[Any] = None) -> Optional[Dict[str, Any]]:
     """Compatibility adapter for legacy get_latest_reading calls."""
     latest = get_latest_telemetry(device_id=device_id, db=db)
     if not latest:
@@ -879,108 +891,141 @@ def get_latest_reading(device_id: Optional[str] = None, db: Optional[sqlite3.Con
     return res
 
 
-def get_today_summary(device_id: Optional[str] = None, date_str: Optional[str] = None, db: Optional[sqlite3.Connection] = None) -> Dict[str, Any]:
+def get_today_summary(device_id: Optional[str] = None, date_str: Optional[str] = None, db: Optional[Any] = None) -> Dict[str, Any]:
     """Computes daily scorecard aggregates for legacy dashboard."""
-    conn = db or get_db()
-    cursor = conn.cursor()
+    database = db if isinstance(db, JsonDatabase) else get_db()
+    telemetry = database.get("telemetry", [])
     target_date = date_str or datetime.now().strftime("%Y-%m-%d")
 
-    q = """
-        SELECT
-            COUNT(*) as reading_count,
-            ROUND(MIN(water_height), 2) as min_level_cm,
-            ROUND(MAX(water_height), 2) as max_level_cm,
-            ROUND(AVG(water_height), 2) as avg_level_cm,
-            ROUND(MIN(water_percentage), 2) as min_percentage,
-            ROUND(MAX(water_percentage), 2) as max_percentage,
-            ROUND(AVG(water_percentage), 2) as avg_percentage,
-            ROUND(MIN(water_volume), 2) as min_litres,
-            ROUND(MAX(water_volume), 2) as max_litres,
-            ROUND(AVG(water_volume), 2) as avg_litres
-        FROM telemetry
-        WHERE date = ?
-    """
-    params = [target_date]
+    records = [t for t in telemetry if t.get("date") == target_date]
     if device_id:
-        q += " AND device_id = ?"
-        params.append(device_id)
+        records = [t for t in records if t.get("device_id") == device_id]
 
-    cursor.execute(q, tuple(params))
-    summary = dict(cursor.fetchone() or {})
-    summary["date"] = target_date
-    summary["net_change_litres"] = 0.0
-    summary["net_water_change_litres"] = 0.0
-    summary["min_level_percent"] = summary.get("min_percentage", 0.0)
-    summary["max_level_percent"] = summary.get("max_percentage", 0.0)
-    summary["avg_level_percent"] = summary.get("avg_percentage", 0.0)
-    return summary
+    if not records:
+        return {
+            "date": target_date,
+            "reading_count": 0,
+            "min_level_cm": 0.0,
+            "max_level_cm": 0.0,
+            "avg_level_cm": 0.0,
+            "min_percentage": 0.0,
+            "max_percentage": 0.0,
+            "avg_percentage": 0.0,
+            "min_litres": 0.0,
+            "max_litres": 0.0,
+            "avg_litres": 0.0,
+            "net_change_litres": 0.0,
+            "net_water_change_litres": 0.0,
+            "min_level_percent": 0.0,
+            "max_level_percent": 0.0,
+            "avg_level_percent": 0.0,
+        }
+
+    h_list = [float(r.get("water_height", 0.0)) for r in records]
+    p_list = [float(r.get("water_percentage", 0.0)) for r in records]
+    v_list = [float(r.get("water_volume", 0.0)) for r in records]
+
+    return {
+        "date": target_date,
+        "reading_count": len(records),
+        "min_level_cm": round(min(h_list), 2),
+        "max_level_cm": round(max(h_list), 2),
+        "avg_level_cm": round(sum(h_list) / len(h_list), 2),
+        "min_percentage": round(min(p_list), 2),
+        "max_percentage": round(max(p_list), 2),
+        "avg_percentage": round(sum(p_list) / len(p_list), 2),
+        "min_litres": round(min(v_list), 2),
+        "max_litres": round(max(v_list), 2),
+        "avg_litres": round(sum(v_list) / len(v_list), 2),
+        "net_change_litres": 0.0,
+        "net_water_change_litres": 0.0,
+        "min_level_percent": round(min(p_list), 2),
+        "max_level_percent": round(max(p_list), 2),
+        "avg_level_percent": round(sum(p_list) / len(p_list), 2),
+    }
 
 
-def get_daily_stats(days: int = 15, device_id: Optional[str] = None, db: Optional[sqlite3.Connection] = None) -> List[Dict[str, Any]]:
+def get_daily_stats(days: int = 15, device_id: Optional[str] = None, db: Optional[Any] = None) -> List[Dict[str, Any]]:
     """Calculates daily aggregates for the past N calendar days."""
-    conn = db or get_db()
-    cursor = conn.cursor()
+    database = db if isinstance(db, JsonDatabase) else get_db()
+    telemetry = database.get("telemetry", [])
     cutoff_date = (datetime.now() - timedelta(days=max(0, days - 1))).strftime("%Y-%m-%d")
-    q = """
-        SELECT
-            date,
-            COUNT(*) as reading_count,
-            ROUND(MIN(water_height), 2) as min_level_cm,
-            ROUND(MAX(water_height), 2) as max_level_cm,
-            ROUND(AVG(water_height), 2) as avg_level_cm,
-            ROUND(MIN(water_percentage), 2) as min_percentage,
-            ROUND(MAX(water_percentage), 2) as max_percentage,
-            ROUND(AVG(water_percentage), 2) as avg_percentage,
-            ROUND(MIN(water_volume), 2) as min_litres,
-            ROUND(MAX(water_volume), 2) as max_litres,
-            ROUND(AVG(water_volume), 2) as avg_litres
-        FROM telemetry
-        WHERE date >= ?
-    """
-    params = [cutoff_date]
+
+    records = [t for t in telemetry if str(t.get("date", "")) >= cutoff_date]
     if device_id:
-        q += " AND device_id = ?"
-        params.append(device_id)
-    q += " GROUP BY date ORDER BY date ASC"
-    cursor.execute(q, tuple(params))
-    return [dict(r) for r in cursor.fetchall()]
+        records = [t for t in records if t.get("device_id") == device_id]
+
+    # Group by date
+    by_date: Dict[str, List[Dict[str, Any]]] = {}
+    for r in records:
+        d = r.get("date", "")
+        by_date.setdefault(d, []).append(r)
+
+    results = []
+    for d in sorted(by_date.keys()):
+        group = by_date[d]
+        h_list = [float(r.get("water_height", 0.0)) for r in group]
+        p_list = [float(r.get("water_percentage", 0.0)) for r in group]
+        v_list = [float(r.get("water_volume", 0.0)) for r in group]
+
+        results.append({
+            "date": d,
+            "reading_count": len(group),
+            "min_level_cm": round(min(h_list), 2),
+            "max_level_cm": round(max(h_list), 2),
+            "avg_level_cm": round(sum(h_list) / len(h_list), 2),
+            "min_percentage": round(min(p_list), 2),
+            "max_percentage": round(max(p_list), 2),
+            "avg_percentage": round(sum(p_list) / len(p_list), 2),
+            "min_litres": round(min(v_list), 2),
+            "max_litres": round(max(v_list), 2),
+            "avg_litres": round(sum(v_list) / len(v_list), 2),
+        })
+
+    return results
 
 
-def get_readings_by_date(date_str: str, device_id: Optional[str] = None, limit: Optional[int] = None, db: Optional[sqlite3.Connection] = None) -> List[Dict[str, Any]]:
+def get_readings_by_date(date_str: str, device_id: Optional[str] = None, limit: Optional[int] = None, db: Optional[Any] = None) -> List[Dict[str, Any]]:
     """Retrieves chronological intraday readings for a given date."""
-    conn = db or get_db()
-    cursor = conn.cursor()
-    q = "SELECT * FROM telemetry WHERE date = ?"
-    params = [date_str]
+    database = db if isinstance(db, JsonDatabase) else get_db()
+    telemetry = database.get("telemetry", [])
+
+    records = [t for t in telemetry if t.get("date") == date_str]
     if device_id:
-        q += " AND device_id = ?"
-        params.append(device_id)
-    q += " ORDER BY timestamp ASC"
+        records = [t for t in records if t.get("device_id") == device_id]
+
+    records = sorted(records, key=lambda x: str(x.get("timestamp", "")))
     if limit:
-        q += " LIMIT ?"
-        params.append(limit)
-    cursor.execute(q, tuple(params))
+        records = records[:limit]
+
     res = []
-    for r in cursor.fetchall():
-        d = dict(r)
+    for r in records:
+        d = copy.deepcopy(r)
         d["water_level_cm"] = d.get("water_height", 0.0)
         d["water_litres"] = d.get("water_volume", 0.0)
         res.append(d)
     return res
 
 
-def compare_dates(date1_str: str, date2_str: str, device_id: Optional[str] = None, db: Optional[sqlite3.Connection] = None) -> Dict[str, Any]:
+def compare_dates(date1_str: str, date2_str: str, device_id: Optional[str] = None, db: Optional[Any] = None) -> Dict[str, Any]:
     """Compares statistics between two dates side-by-side."""
-    conn = db or get_db()
+    database = db if isinstance(db, JsonDatabase) else get_db()
+    telemetry = database.get("telemetry", [])
+
     def _fetch(d_str):
-        cursor = conn.cursor()
-        q = "SELECT COUNT(*) as reading_count, ROUND(AVG(water_percentage), 2) as avg_percentage, ROUND(AVG(water_volume), 2) as avg_litres FROM telemetry WHERE date = ?"
-        p = [d_str]
+        recs = [t for t in telemetry if t.get("date") == d_str]
         if device_id:
-            q += " AND device_id = ?"
-            p.append(device_id)
-        cursor.execute(q, tuple(p))
-        return dict(cursor.fetchone() or {"reading_count": 0, "avg_percentage": 0.0, "avg_litres": 0.0})
+            recs = [t for t in recs if t.get("device_id") == device_id]
+        if not recs:
+            return {"reading_count": 0, "avg_percentage": 0.0, "avg_litres": 0.0}
+        p_list = [float(r.get("water_percentage", 0.0)) for r in recs]
+        v_list = [float(r.get("water_volume", 0.0)) for r in recs]
+        return {
+            "reading_count": len(recs),
+            "avg_percentage": round(sum(p_list) / len(p_list), 2),
+            "avg_litres": round(sum(v_list) / len(v_list), 2),
+        }
+
     s1 = _fetch(date1_str)
     s2 = _fetch(date2_str)
     return {

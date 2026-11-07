@@ -13,6 +13,8 @@ htmlcov/
 data/*.db
 data/*.db-wal
 data/*.db-shm
+data/*.tmp*
+data/*.json.tmp*
 backups/*.json
 backups/*.csv
 
