@@ -427,7 +427,7 @@ class HydroSenseTestCase(unittest.TestCase):
         self.assertAlmostEqual(curr["water_percentage"], 35.0, places=1)
 
     def test_frontend_branding_and_assets(self):
-        """Verify UI template contains white header, footer logo, '+' add receiver email, and no manual water level."""
+        """Verify UI template contains full light theme, footer logo, '+' add receiver email, and no sender email displayed."""
         res = self.client.get("/")
         self.assertEqual(res.status_code, 200)
         html = res.get_data(as_text=True)
@@ -435,12 +435,14 @@ class HydroSenseTestCase(unittest.TestCase):
         self.assertIn("https://aivontraa.com", html)
         self.assertIn("Aivontraa Automation PVT LTD", html)
         self.assertNotIn("🧪 Sensor Test Simulator", html)
-        # Header has white/light styling
-        self.assertIn("bg-white", html)
+        # Full web page has light theme styling
+        self.assertIn("bg-slate-50", html)
+        self.assertNotIn("bg-scada-900 text-slate-100", html)
         # No manual liters occupied input
         self.assertNotIn('name="liters_occupied"', html)
-        # Email section displays sender and '+' add receiver button
-        self.assertIn("hello.aivontraa@gmail.com", html)
+        # Sender email label is NOT displayed
+        self.assertNotIn("Sent from (Sender):", html)
+        # Email section displays '+' add receiver button
         self.assertIn("Add receiver email (+)", html)
 
     # =========================================================================
