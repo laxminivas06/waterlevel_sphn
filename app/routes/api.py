@@ -282,6 +282,16 @@ def create_tank_v1():
                 telemetry_payload["water_level_percent"] = float(occ_pct)
             insert_telemetry(telemetry_payload)
 
+        # If recipient emails are specified in tank calibration form, update email_settings
+        if "recipient_emails" in data or "notification_emails" in data:
+            try:
+                from app.email_notifier import update_email_settings
+                emails_val = data.get("recipient_emails") or data.get("notification_emails")
+                if emails_val:
+                    update_email_settings({"recipient_emails": emails_val})
+            except Exception:
+                pass
+
         return jsonify({"tank": tank, "status": "success"}), 201
     except Exception as exc:
         return jsonify({"error": str(exc), "status_code": 422}), 422
@@ -647,10 +657,18 @@ def legacy_water_level_current():
 
     today = get_today_summary(device_id=tank_id)
 
+    email_cfg = {}
+    try:
+        from app.email_notifier import get_email_settings
+        email_cfg = get_email_settings()
+    except Exception:
+        pass
+
     return jsonify({
         "device": device,
         "tank": tank_info,
         "settings": tank_info,
+        "email_settings": email_cfg,
         "reading": latest,
         "latest_reading": latest,
         "water_level": pct,
@@ -697,3 +715,52 @@ def legacy_compare():
     d1 = request.args.get("date1", datetime.now().strftime("%Y-%m-%d"))
     d2 = request.args.get("date2", datetime.now().strftime("%Y-%m-%d"))
     return jsonify(compare_dates(d1, d2)), 200
+
+
+# ==============================================================================
+# SECTION 17: EMAIL NOTIFICATION SETTINGS & TEST UTILITIES
+# ==============================================================================
+
+@api_bp.route("/v1/settings/email", methods=["GET", "POST"])
+def email_settings_v1():
+    """Retrieves or updates SMTP email notification configuration."""
+    from app.email_notifier import get_email_settings, update_email_settings
+    if request.method == "GET":
+        return jsonify({"settings": get_email_settings(), "status": "success"}), 200
+
+    data = request.get_json(silent=True) or {}
+    updated = update_email_settings(data)
+    return jsonify({"settings": updated, "status": "success"}), 200
+
+
+@api_bp.route("/v1/email/test", methods=["POST"])
+def test_email_v1():
+    """Sends an immediate verification test email to all configured/specified recipients."""
+    from app.email_notifier import send_smtp_email, build_test_email_content, parse_recipient_emails, get_email_settings
+    data = request.get_json(silent=True) or {}
+    recipients_raw = data.get("recipient_emails") or data.get("notification_emails")
+    recipients = parse_recipient_emails(recipients_raw) if recipients_raw else None
+
+    cfg = get_email_settings()
+    target_recipients = recipients or parse_recipient_emails(cfg.get("recipient_emails"))
+
+    tanks = get_all_tanks()
+    tank_name = tanks[0].get("tank_name", "SV Block Overhead Tank") if tanks else "SV Block Overhead Tank"
+
+    subject, html_body, text_body = build_test_email_content(target_recipients, tank_name=tank_name)
+    success, message, sent_list = send_smtp_email(
+        subject=subject,
+        html_content=html_body,
+        text_content=text_body,
+        recipient_emails=target_recipients,
+        custom_settings=data if data.get("smtp_username") else None,
+    )
+
+    status_code = 200 if success else 400
+    return jsonify({
+        "success": success,
+        "status": "success" if success else "error",
+        "message": message,
+        "recipients": sent_list,
+    }), status_code
+

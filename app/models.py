@@ -576,7 +576,7 @@ def insert_telemetry(payload: Dict[str, Any], db: Optional[Any] = None) -> Dict[
     database.save()
 
     # Automated Alert Triggering (Section 7)
-    if metrics["status"] == "OVERLOADED":
+    if metrics["status"] == "OVERLOADED" or metrics["water_percentage"] >= float(tank.get("safe_max_percent", 95.0)):
         create_alert(
             tank_id=tank_id,
             device_id=device_id,
@@ -585,6 +585,12 @@ def insert_telemetry(payload: Dict[str, Any], db: Optional[Any] = None) -> Dict[
             message=f"Tank '{tank.get('tank_name', tank_id)}' is OVERLOADED! Water level at {metrics['water_percentage']}% ({metrics['water_volume']}L).",
             db=database,
         )
+        # Dispatch SMTP Overfill Email to all configured recipients
+        try:
+            from app.email_notifier import trigger_overfill_email_alert
+            trigger_overfill_email_alert(tank, metrics, db=database)
+        except Exception:
+            pass
     elif metrics["status"] == "CRITICAL LOW":
         create_alert(
             tank_id=tank_id,
@@ -1030,6 +1036,16 @@ def update_tank_settings(settings_dict: Dict[str, Any], db: Optional[Any] = None
         if occ_pct is not None:
             telemetry_payload["water_level_percent"] = float(occ_pct)
         insert_telemetry(telemetry_payload, db=database)
+
+    # If email notification recipients are specified, update email_settings
+    if "recipient_emails" in settings_dict or "notification_emails" in settings_dict:
+        try:
+            from app.email_notifier import update_email_settings
+            emails_val = settings_dict.get("recipient_emails") or settings_dict.get("notification_emails")
+            if emails_val:
+                update_email_settings({"recipient_emails": emails_val}, db=database)
+        except Exception:
+            pass
 
     return get_tank_settings(db=database)
 

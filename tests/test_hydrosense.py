@@ -437,7 +437,100 @@ class HydroSenseTestCase(unittest.TestCase):
         self.assertNotIn("🧪 Sensor Test Simulator", html)
 
     # =========================================================================
-    # 10. Health Check & WSGI Callable
+    # 10. Email Notification & SMTP Alert Suite
+    # =========================================================================
+    def test_parse_multiple_recipient_emails(self):
+        """Verify parsing handles commas, semicolons, whitespace and deduplication."""
+        from app.email_notifier import parse_recipient_emails
+        raw = "hello.aivontraa@gmail.com, alerts@domain.com; manager@domain.com, hello.aivontraa@gmail.com"
+        parsed = parse_recipient_emails(raw)
+        self.assertEqual(len(parsed), 3)
+        self.assertIn("hello.aivontraa@gmail.com", parsed)
+        self.assertIn("alerts@domain.com", parsed)
+        self.assertIn("manager@domain.com", parsed)
+
+    def test_email_settings_endpoints(self):
+        """GET & POST /api/v1/settings/email manages email configuration."""
+        # 1. GET defaults
+        res_get = self.client.get("/api/v1/settings/email")
+        self.assertEqual(res_get.status_code, 200)
+        data = res_get.get_json()["settings"]
+        self.assertEqual(data["smtp_username"], "hello.aivontraa@gmail.com")
+        self.assertIn("hello.aivontraa@gmail.com", data["recipient_emails"])
+
+        # 2. POST update
+        payload = {
+            "recipient_emails": "alert1@test.com, alert2@test.com",
+            "overfill_threshold_percent": 90.0,
+            "cooldown_minutes": 10,
+        }
+        res_post = self.client.post("/api/v1/settings/email", json=payload)
+        self.assertEqual(res_post.status_code, 200)
+        updated = res_post.get_json()["settings"]
+        self.assertIn("alert1@test.com", updated["recipient_emails"])
+        self.assertIn("alert2@test.com", updated["recipient_emails"])
+        self.assertEqual(updated["overfill_threshold_percent"], 90.0)
+
+    def test_send_test_email_endpoint(self):
+        """POST /api/v1/email/test dispatches verification test email."""
+        payload = {
+            "recipient_emails": "hello.aivontraa@gmail.com, test@example.com"
+        }
+        res = self.client.post("/api/v1/email/test", json=payload)
+        self.assertEqual(res.status_code, 200)
+        data = res.get_json()
+        self.assertTrue(data.get("success"))
+        self.assertEqual(len(data.get("recipients", [])), 2)
+
+    def test_overfill_email_trigger_and_debounce(self):
+        """Verify overfill telemetry triggers email alert and enforces cooldown."""
+        from app.email_notifier import trigger_overfill_email_alert, _LAST_OVERFILL_EMAIL_SENT
+
+        # Reset in-memory tracker
+        _LAST_OVERFILL_EMAIL_SENT.clear()
+
+        tank = {
+            "tank_id": "SV_BLOCK_OVER_TANK",
+            "tank_name": "Overfill Test Tank",
+            "total_capacity_litres": 1000.0,
+            "safe_max_percent": 95.0,
+        }
+        metrics = {
+            "water_percentage": 102.0,
+            "water_volume": 1020.0,
+            "status": "OVERLOADED",
+        }
+
+        with self.app.app_context():
+            db = get_db(self.db_path)
+            # 1. First trigger should succeed
+            triggered = trigger_overfill_email_alert(tank, metrics, db=db)
+            self.assertTrue(triggered)
+
+            # 2. Immediate second trigger should be debounced by cooldown
+            debounced = trigger_overfill_email_alert(tank, metrics, db=db)
+            self.assertFalse(debounced)
+
+    def test_tank_settings_updates_recipient_emails(self):
+        """POST /api/v1/tanks updates notification emails when submitted in settings form."""
+        payload = {
+            "tank_id": "SV_BLOCK_OVER_TANK",
+            "tank_name": "SV Block Overhead Tank",
+            "recipient_emails": "support@aivontraa.com, ops@aivontraa.com",
+            "total_capacity_litres": 1000.0,
+        }
+        res = self.client.post("/api/v1/tanks", json=payload)
+        self.assertEqual(res.status_code, 201)
+
+        # Verify email settings updated
+        res_email = self.client.get("/api/v1/settings/email")
+        self.assertEqual(res_email.status_code, 200)
+        settings = res_email.get_json()["settings"]
+        self.assertIn("support@aivontraa.com", settings["recipient_emails"])
+        self.assertIn("ops@aivontraa.com", settings["recipient_emails"])
+
+    # =========================================================================
+    # 11. Health Check & WSGI Callable
     # =========================================================================
     def test_health_check(self):
         """GET /api/v1/health returns healthy system and DB status."""
