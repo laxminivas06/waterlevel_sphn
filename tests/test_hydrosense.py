@@ -427,7 +427,7 @@ class HydroSenseTestCase(unittest.TestCase):
         self.assertAlmostEqual(curr["water_percentage"], 35.0, places=1)
 
     def test_frontend_branding_and_assets(self):
-        """Verify UI template contains Aivontraa logo, favicon, footer branding, and no simulator."""
+        """Verify UI template contains white header, footer logo, '+' add receiver email, and no manual water level."""
         res = self.client.get("/")
         self.assertEqual(res.status_code, 200)
         html = res.get_data(as_text=True)
@@ -435,6 +435,13 @@ class HydroSenseTestCase(unittest.TestCase):
         self.assertIn("https://aivontraa.com", html)
         self.assertIn("Aivontraa Automation PVT LTD", html)
         self.assertNotIn("🧪 Sensor Test Simulator", html)
+        # Header has white/light styling
+        self.assertIn("bg-white", html)
+        # No manual liters occupied input
+        self.assertNotIn('name="liters_occupied"', html)
+        # Email section displays sender and '+' add receiver button
+        self.assertIn("hello.aivontraa@gmail.com", html)
+        self.assertIn("Add receiver email (+)", html)
 
     # =========================================================================
     # 10. Email Notification & SMTP Alert Suite
