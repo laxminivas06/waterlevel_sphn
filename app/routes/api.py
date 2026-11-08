@@ -256,7 +256,7 @@ def list_tanks_v1():
 
 @api_bp.route("/v1/tanks", methods=["POST"])
 def create_tank_v1():
-    """Creates a new tank or updates an existing tank's dimensions."""
+    """Creates a new tank or updates an existing tank's dimensions and telemetry."""
     if not request.is_json:
         return jsonify({"error": "Content-Type must be application/json", "status_code": 400}), 400
 
@@ -267,6 +267,21 @@ def create_tank_v1():
 
     try:
         tank = create_or_update_tank(data)
+
+        # If occupied litres or level was set in settings, immediately record telemetry
+        occ_litres = data.get("liters_occupied") or data.get("occupied_litres") or data.get("water_volume_litres")
+        occ_pct = data.get("water_level_percent") or data.get("water_percentage")
+        if occ_litres is not None or occ_pct is not None:
+            telemetry_payload = {
+                "device_id": str(tank_id).strip(),
+                "tank_id": str(tank_id).strip(),
+            }
+            if occ_litres is not None:
+                telemetry_payload["water_volume_litres"] = float(occ_litres)
+            if occ_pct is not None:
+                telemetry_payload["water_level_percent"] = float(occ_pct)
+            insert_telemetry(telemetry_payload)
+
         return jsonify({"tank": tank, "status": "success"}), 201
     except Exception as exc:
         return jsonify({"error": str(exc), "status_code": 422}), 422
@@ -513,6 +528,7 @@ def health_check_v1():
 def handle_legacy_tanks():
     """
     Maintains 100% compatibility with older hardware requests like:
+      GET /api/tanks?tanks=SV_BLOCK_OVER_TANK:2
       GET /api/tanks?tanks=SV_BLOCK_OVER_TANK:54.3
       GET /api/tanks
     """
@@ -546,8 +562,32 @@ def handle_legacy_tanks():
         payload = {
             "device_id": t_id,
             "tank_id": t_id,
-            "distance_cm": raw_val,
         }
+
+        # Value handling:
+        # If the value is in 0..100, treat directly as percentage level
+        # (Resolves percentage inversion: 2% sent must show 2%, not 98%)
+        if 0.0 <= raw_val <= 100.0:
+            payload["water_level_percent"] = raw_val
+            payload["distance_cm"] = raw_val
+        else:
+            payload["distance_cm"] = raw_val
+
+        # Support optional query parameters if explicitly specified
+        explicit_pct = request.args.get("percent") or request.args.get("percentage") or request.args.get("water_level_percent")
+        if explicit_pct is not None:
+            try:
+                payload["water_level_percent"] = float(explicit_pct)
+            except ValueError:
+                pass
+
+        explicit_litres = request.args.get("litres") or request.args.get("liters") or request.args.get("water_volume_litres") or request.args.get("liters_occupied")
+        if explicit_litres is not None:
+            try:
+                payload["water_volume_litres"] = float(explicit_litres)
+            except ValueError:
+                pass
+
         res = insert_telemetry(payload)
         results.append(res)
 

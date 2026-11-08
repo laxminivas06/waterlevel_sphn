@@ -383,6 +383,59 @@ class HydroSenseTestCase(unittest.TestCase):
         res_list = self.client.get("/api/water-level?limit=10")
         self.assertEqual(res_list.status_code, 200)
 
+    def test_percentage_direct_mapping_not_inverted(self):
+        """Verify that sending 2% water level reports exactly 2% (not inverted 98%)."""
+        res = self.client.get("/api/tanks?tanks=SV_BLOCK_OVER_TANK:2.0")
+        self.assertEqual(res.status_code, 200)
+        data = res.get_json()
+        self.assertAlmostEqual(data["reading"]["water_percentage"], 2.0, places=1)
+        self.assertEqual(data["reading"]["status"], "CRITICAL LOW")
+
+        # Snapshot should also show 2%
+        res_current = self.client.get("/api/water-level/current")
+        self.assertEqual(res_current.status_code, 200)
+        curr = res_current.get_json()
+        self.assertAlmostEqual(curr["water_percentage"], 2.0, places=1)
+
+        # Sending 98% should show 98%
+        res98 = self.client.get("/api/tanks?tanks=SV_BLOCK_OVER_TANK:98.0")
+        self.assertEqual(res98.status_code, 200)
+        data98 = res98.get_json()
+        self.assertAlmostEqual(data98["reading"]["water_percentage"], 98.0, places=1)
+
+    def test_tank_settings_name_and_liters_occupied(self):
+        """Verify settings update allows custom tank name and immediate liters occupied calibration."""
+        payload = {
+            "tank_id": "SV_BLOCK_OVER_TANK",
+            "tank_name": "Main Overhead Reservoir",
+            "total_capacity_litres": 1000.0,
+            "liters_occupied": 350.0,
+            "tank_height_cm": 200.0,
+            "sensor_offset_cm": 15.0,
+        }
+        res = self.client.post("/api/v1/tanks", json=payload)
+        self.assertEqual(res.status_code, 201)
+        tank_data = res.get_json()["tank"]
+        self.assertEqual(tank_data["tank_name"], "Main Overhead Reservoir")
+
+        # Verify current status reflected the 350L (35%)
+        res_curr = self.client.get("/api/water-level/current")
+        self.assertEqual(res_curr.status_code, 200)
+        curr = res_curr.get_json()
+        self.assertEqual(curr["tank"]["tank_name"], "Main Overhead Reservoir")
+        self.assertAlmostEqual(curr["water_volume_litres"], 350.0, places=1)
+        self.assertAlmostEqual(curr["water_percentage"], 35.0, places=1)
+
+    def test_frontend_branding_and_assets(self):
+        """Verify UI template contains Aivontraa logo, favicon, footer branding, and no simulator."""
+        res = self.client.get("/")
+        self.assertEqual(res.status_code, 200)
+        html = res.get_data(as_text=True)
+        self.assertIn("https://aivontraa.com/assets/images/ai.png", html)
+        self.assertIn("https://aivontraa.com", html)
+        self.assertIn("Aivontraa Automation PVT LTD", html)
+        self.assertNotIn("🧪 Sensor Test Simulator", html)
+
     # =========================================================================
     # 10. Health Check & WSGI Callable
     # =========================================================================

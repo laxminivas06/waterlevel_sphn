@@ -83,22 +83,33 @@ def create_or_update_tank(tank_data: Dict[str, Any], db: Optional[Any] = None) -
 
     if found_idx is not None:
         existing = tanks[found_idx]
-        existing.update({
-            "tank_name": tank_name,
-            "shape": shape,
-            "tank_height_cm": tank_height,
-            "sensor_offset_cm": sensor_offset,
-            "total_capacity_litres": total_capacity,
-            "length_cm": length_cm,
-            "width_cm": width_cm,
-            "radius_cm": radius_cm,
-            "safe_max_percent": safe_max_pct,
-            "critical_low_percent": crit_low_pct,
-            "low_percent": low_pct,
-            "high_percent": high_pct,
-            "offline_threshold_seconds": offline_thresh,
-            "updated_at": now_ts,
-        })
+        if tank_data.get("tank_name"):
+            existing["tank_name"] = str(tank_data["tank_name"]).strip()
+        if tank_data.get("shape"):
+            existing["shape"] = shape
+        if tank_data.get("tank_height_cm") is not None:
+            existing["tank_height_cm"] = tank_height
+        if tank_data.get("sensor_offset_cm") is not None:
+            existing["sensor_offset_cm"] = sensor_offset
+        if tank_data.get("total_capacity_litres") is not None:
+            existing["total_capacity_litres"] = total_capacity
+        if radius_cm is not None:
+            existing["radius_cm"] = radius_cm
+        if length_cm is not None:
+            existing["length_cm"] = length_cm
+        if width_cm is not None:
+            existing["width_cm"] = width_cm
+        if tank_data.get("safe_max_percent") is not None:
+            existing["safe_max_percent"] = safe_max_pct
+        if tank_data.get("critical_low_percent") is not None:
+            existing["critical_low_percent"] = crit_low_pct
+        if tank_data.get("low_percent") is not None:
+            existing["low_percent"] = low_pct
+        if tank_data.get("high_percent") is not None:
+            existing["high_percent"] = high_pct
+        if tank_data.get("offline_threshold_seconds") is not None:
+            existing["offline_threshold_seconds"] = offline_thresh
+        existing["updated_at"] = now_ts
         database.save()
         return copy.deepcopy(existing)
     else:
@@ -158,6 +169,102 @@ def calculate_tank_physics(
     crit_low_pct = float(tank.get("critical_low_percent", 10.0))
     low_pct = float(tank.get("low_percent", 25.0))
     high_pct = float(tank.get("high_percent", 85.0))
+
+    # 1. If explicit water level percentage was reported, directly respect it (e.g. 2% is 2%, not inverted)
+    if reported_pct is not None:
+        try:
+            pct = round(max(0.0, min(105.0, float(reported_pct))), 2)
+            water_height = round((pct / 100.0) * tank_height, 2)
+            effective_air_gap = max(0.0, tank_height - water_height)
+            calc_dist = round(effective_air_gap + sensor_offset, 2)
+            dist_val = distance_cm if (distance_cm > 0 and distance_cm != float(reported_pct)) else calc_dist
+
+            if reported_litres is not None and float(reported_litres) > 0:
+                volume = round(float(reported_litres), 2)
+            else:
+                shape = tank.get("shape", "cylinder")
+                if shape == "cylinder" and tank.get("radius_cm"):
+                    r = float(tank["radius_cm"])
+                    computed_litres = round((math.pi * (r ** 2) * water_height) / 1000.0, 2)
+                    volume = min(total_capacity, computed_litres)
+                elif shape == "rectangle" and tank.get("length_cm") and tank.get("width_cm"):
+                    l = float(tank["length_cm"])
+                    w = float(tank["width_cm"])
+                    computed_litres = round((l * w * water_height) / 1000.0, 2)
+                    volume = min(total_capacity, computed_litres)
+                else:
+                    volume = round((pct / 100.0) * total_capacity, 2)
+
+            if pct > 100.0:
+                status = "OVERLOADED"
+                is_overloaded = True
+            elif pct <= crit_low_pct:
+                status = "CRITICAL LOW"
+                is_overloaded = False
+            elif pct <= low_pct:
+                status = "LOW"
+                is_overloaded = False
+            elif pct <= high_pct:
+                status = "NORMAL"
+                is_overloaded = False
+            else:
+                status = "HIGH"
+                is_overloaded = False
+
+            return {
+                "distance_cm": dist_val,
+                "water_height": water_height,
+                "water_height_cm": water_height,
+                "water_percentage": pct,
+                "water_level_percent": pct,
+                "water_volume": volume,
+                "water_volume_litres": volume,
+                "status": status,
+                "is_overloaded": is_overloaded,
+                "is_valid": True,
+            }
+        except (ValueError, TypeError):
+            pass
+
+    # 2. If explicit occupied litres was reported without percent, calculate percentage directly
+    if reported_litres is not None and float(reported_litres) >= 0 and reported_pct is None:
+        try:
+            volume = round(float(reported_litres), 2)
+            pct = round(min(105.0, (volume / total_capacity) * 100.0), 2)
+            water_height = round((pct / 100.0) * tank_height, 2)
+            effective_air_gap = max(0.0, tank_height - water_height)
+            calc_dist = round(effective_air_gap + sensor_offset, 2)
+
+            if pct > 100.0:
+                status = "OVERLOADED"
+                is_overloaded = True
+            elif pct <= crit_low_pct:
+                status = "CRITICAL LOW"
+                is_overloaded = False
+            elif pct <= low_pct:
+                status = "LOW"
+                is_overloaded = False
+            elif pct <= high_pct:
+                status = "NORMAL"
+                is_overloaded = False
+            else:
+                status = "HIGH"
+                is_overloaded = False
+
+            return {
+                "distance_cm": distance_cm if distance_cm > 0 else calc_dist,
+                "water_height": water_height,
+                "water_height_cm": water_height,
+                "water_percentage": pct,
+                "water_level_percent": pct,
+                "water_volume": volume,
+                "water_volume_litres": volume,
+                "status": status,
+                "is_overloaded": is_overloaded,
+                "is_valid": True,
+            }
+        except (ValueError, TypeError):
+            pass
 
     # Reject or flag physically impossible sensor readings
     if distance_cm < 0.0 or distance_cm > (tank_height + sensor_offset + 100.0):
@@ -382,13 +489,48 @@ def insert_telemetry(payload: Dict[str, Any], db: Optional[Any] = None) -> Dict[
         create_or_update_tank({"tank_id": tank_id, "tank_name": tank_id.replace("_", " ").title()}, db=database)
         tank = get_tank(tank_id, db=database)
 
+    # Extract any reported percentage or occupied litres from known aliases
+    raw_pct = (
+        payload.get("water_level_percent")
+        if payload.get("water_level_percent") is not None
+        else payload.get("water_percentage")
+        if payload.get("water_percentage") is not None
+        else payload.get("percentage")
+        if payload.get("percentage") is not None
+        else payload.get("percent")
+    )
+    reported_pct = None
+    if raw_pct is not None:
+        try:
+            reported_pct = float(raw_pct)
+        except (ValueError, TypeError):
+            reported_pct = None
+
+    raw_litres = (
+        payload.get("water_volume_litres")
+        if payload.get("water_volume_litres") is not None
+        else payload.get("water_litres")
+        if payload.get("water_litres") is not None
+        else payload.get("water_volume")
+        if payload.get("water_volume") is not None
+        else payload.get("liters_occupied")
+        if payload.get("liters_occupied") is not None
+        else payload.get("occupied_litres")
+    )
+    reported_litres = None
+    if raw_litres is not None:
+        try:
+            reported_litres = float(raw_litres)
+        except (ValueError, TypeError):
+            reported_litres = None
+
     # Calculate physics metrics
     distance_cm = float(payload.get("distance_cm") or 0.0)
     metrics = calculate_tank_physics(
         tank=tank,
         distance_cm=distance_cm,
-        reported_pct=payload.get("water_level_percent"),
-        reported_litres=payload.get("water_volume_litres"),
+        reported_pct=reported_pct,
+        reported_litres=reported_litres,
     )
 
     now_ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -863,6 +1005,7 @@ def update_tank_settings(settings_dict: Dict[str, Any], db: Optional[Any] = None
 
     data = {
         "tank_id": target_tank_id,
+        "tank_name": settings_dict.get("tank_name"),
         "tank_height_cm": settings_dict.get("tank_height_cm") or settings_dict.get("total_height_cm"),
         "sensor_offset_cm": settings_dict.get("sensor_offset_cm"),
         "total_capacity_litres": settings_dict.get("total_capacity_litres"),
@@ -871,7 +1014,23 @@ def update_tank_settings(settings_dict: Dict[str, Any], db: Optional[Any] = None
         "high_percent": settings_dict.get("warning_normal_percent"),
         "offline_threshold_seconds": settings_dict.get("offline_threshold_seconds"),
     }
-    create_or_update_tank(data, db=database)
+    clean_data = {k: v for k, v in data.items() if v is not None}
+    create_or_update_tank(clean_data, db=database)
+
+    # If occupied litres or percentage is provided in settings, immediately record a telemetry reading
+    occ_litres = settings_dict.get("liters_occupied") or settings_dict.get("occupied_litres") or settings_dict.get("water_volume_litres")
+    occ_pct = settings_dict.get("water_level_percent") or settings_dict.get("water_percentage")
+    if occ_litres is not None or occ_pct is not None:
+        telemetry_payload = {
+            "device_id": target_tank_id,
+            "tank_id": target_tank_id,
+        }
+        if occ_litres is not None:
+            telemetry_payload["water_volume_litres"] = float(occ_litres)
+        if occ_pct is not None:
+            telemetry_payload["water_level_percent"] = float(occ_pct)
+        insert_telemetry(telemetry_payload, db=database)
+
     return get_tank_settings(db=database)
 
 
