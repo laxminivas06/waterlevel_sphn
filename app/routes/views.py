@@ -11,6 +11,7 @@ views_bp = Blueprint("views", __name__)
 
 
 @views_bp.route("/")
+@views_bp.route("/login")
 def index():
     """
     Renders the primary web dashboard single page application.

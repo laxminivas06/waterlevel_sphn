@@ -16,6 +16,8 @@ import json
 import math
 from typing import Any, Dict, List, Optional, Tuple, Union
 
+from werkzeug.security import generate_password_hash, check_password_hash
+
 from app.database import get_db, JsonDatabase
 
 
@@ -1211,3 +1213,74 @@ def compare_dates(date1_str: str, date2_str: str, device_id: Optional[str] = Non
             "avg_litres_diff": round(s2.get("avg_litres", 0) - s1.get("avg_litres", 0), 2),
         }
     }
+
+
+# ==============================================================================
+# 9. User Authentication & Profile Management
+# ==============================================================================
+
+def get_user_by_username(username: str, db: Optional[Any] = None) -> Optional[Dict[str, Any]]:
+    """Retrieves a user record by username or email (case-insensitive)."""
+    if not username:
+        return None
+    database = db if isinstance(db, JsonDatabase) else get_db()
+    users = database.get("users", [])
+    clean_username = username.strip().lower()
+    for u in users:
+        if (
+            str(u.get("username", "")).strip().lower() == clean_username
+            or str(u.get("email", "")).strip().lower() == clean_username
+        ):
+            return copy.deepcopy(u)
+    return None
+
+
+def get_user_by_id(user_id: int, db: Optional[Any] = None) -> Optional[Dict[str, Any]]:
+    """Retrieves a user record by user_id."""
+    database = db if isinstance(db, JsonDatabase) else get_db()
+    users = database.get("users", [])
+    for u in users:
+        if u.get("id") == user_id:
+            return copy.deepcopy(u)
+    return None
+
+
+def verify_user_password(user: Dict[str, Any], password: str) -> bool:
+    """Verifies user password using secure password hashing with fallback to initial default."""
+    if not user or not password:
+        return False
+    stored_hash = user.get("password_hash", "")
+    if not stored_hash:
+        return False
+    # If initial development placeholder hash, allow admin123
+    if stored_hash == "pbkdf2:sha256:600000$hydrosense$admin" and password == "admin123":
+        return True
+    try:
+        return check_password_hash(stored_hash, password)
+    except Exception:
+        return False
+
+
+def update_user_password(user_id: int, new_password: str, db: Optional[Any] = None) -> bool:
+    """Updates user password with secure hash."""
+    if not new_password or len(new_password) < 4:
+        raise ValueError("Password must be at least 4 characters long.")
+    database = db if isinstance(db, JsonDatabase) else get_db()
+    users = database.get("users", [])
+    for u in users:
+        if u.get("id") == user_id:
+            u["password_hash"] = generate_password_hash(new_password)
+            u["updated_at"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            database.set("users", users)
+            return True
+    return False
+
+
+def sanitize_user(user: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+    """Removes sensitive credentials (password_hash) from user dict before API exposure."""
+    if not user:
+        return None
+    clean = copy.deepcopy(user)
+    clean.pop("password_hash", None)
+    return clean
+

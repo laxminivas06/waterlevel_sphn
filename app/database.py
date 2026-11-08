@@ -47,8 +47,8 @@ def get_default_seed_data() -> Dict[str, Any]:
             {
                 "id": 1,
                 "username": "admin",
-                "password_hash": "pbkdf2:sha256:600000$hydrosense$admin",
-                "email": "admin@hydrosense.local",
+                "password_hash": "pbkdf2:sha256:1000000$ixp3x5jr8vAPyfoQ$2dc8feb0aff198bcdb774614a89423aa6ebef79cb2050a19ff570443dbbffbbd",
+                "email": "admin@sphoorthy.ac.in",
                 "role": "admin",
                 "created_at": now_ts,
             }

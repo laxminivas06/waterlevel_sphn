@@ -27,7 +27,7 @@ import os
 import re
 from typing import Any, Dict, List, Optional, Tuple, Union
 
-from flask import Blueprint, current_app, jsonify, request
+from flask import Blueprint, current_app, jsonify, request, session
 
 from app.database import get_db
 from app.models import (
@@ -51,10 +51,15 @@ from app.models import (
     get_tank_history,
     get_tank_settings,
     get_today_summary,
+    get_user_by_id,
+    get_user_by_username,
     insert_telemetry,
     insert_water_reading,
     register_device,
+    sanitize_user,
     update_tank_settings,
+    update_user_password,
+    verify_user_password,
 )
 
 api_bp = Blueprint("api", __name__, url_prefix="/api")
@@ -763,4 +768,205 @@ def test_email_v1():
         "message": message,
         "recipients": sent_list,
     }), status_code
+
+
+# ==============================================================================
+# SECTION 18: ADMINISTRATOR AUTHENTICATION & SESSION MANAGEMENT
+# ==============================================================================
+
+@api_bp.route("/v1/auth/login", methods=["POST"])
+def auth_login_v1():
+    """
+    Authenticates administrator using secure password hashing.
+    Initial development credentials: admin / admin123.
+    """
+    data = request.get_json(silent=True) or {}
+    username = str(data.get("username") or data.get("email") or "").strip()
+    password = str(data.get("password") or "").strip()
+
+    if not username or not password:
+        return jsonify({"error": "Username and password are required.", "status_code": 400}), 400
+
+    user = get_user_by_username(username)
+    if not user or not verify_user_password(user, password):
+        return jsonify({"error": "Invalid username or password.", "status_code": 401}), 401
+
+    # Establish secure session
+    session["user_id"] = user["id"]
+    session["username"] = user["username"]
+    session["role"] = user.get("role", "admin")
+    session.permanent = True
+
+    return jsonify({
+        "success": True,
+        "message": "Authenticated successfully.",
+        "user": sanitize_user(user)
+    }), 200
+
+
+@api_bp.route("/v1/auth/logout", methods=["POST"])
+def auth_logout_v1():
+    """Terminates administrator session."""
+    session.clear()
+    return jsonify({"success": True, "message": "Logged out successfully."}), 200
+
+
+@api_bp.route("/v1/auth/me", methods=["GET"])
+def auth_me_v1():
+    """Returns currently authenticated administrator profile, or indicates unauthenticated state."""
+    user_id = session.get("user_id")
+    if not user_id:
+        return jsonify({"authenticated": False, "user": None}), 200
+
+    user = get_user_by_id(user_id)
+    if not user:
+        session.clear()
+        return jsonify({"authenticated": False, "user": None}), 200
+
+    return jsonify({
+        "authenticated": True,
+        "user": sanitize_user(user)
+    }), 200
+
+
+@api_bp.route("/v1/auth/change-password", methods=["POST"])
+def auth_change_password_v1():
+    """Securely updates administrator password after verifying existing password."""
+    user_id = session.get("user_id")
+    if not user_id:
+        return jsonify({"error": "Unauthorized. Please sign in as administrator.", "status_code": 401}), 401
+
+    data = request.get_json(silent=True) or {}
+    current_password = str(data.get("current_password") or "").strip()
+    new_password = str(data.get("new_password") or "").strip()
+
+    if not current_password or not new_password:
+        return jsonify({"error": "Current password and new password are required.", "status_code": 400}), 400
+
+    if len(new_password) < 6:
+        return jsonify({"error": "New password must be at least 6 characters long.", "status_code": 400}), 400
+
+    user = get_user_by_id(user_id)
+    if not user or not verify_user_password(user, current_password):
+        return jsonify({"error": "Current password is incorrect.", "status_code": 400}), 400
+
+    update_user_password(user_id, new_password)
+    return jsonify({"success": True, "message": "Password updated successfully."}), 200
+
+
+@api_bp.route("/v1/auth/google", methods=["POST"])
+def auth_google_v1():
+    """
+    Prepared Google Workspace OAuth endpoint for Sphoorthy Engineering College (@sphoorthy.ac.in).
+    """
+    return jsonify({
+        "success": False,
+        "enabled": False,
+        "institution": "Sphoorthy Engineering College",
+        "message": "Google Workspace OAuth integration for Sphoorthy Engineering College is currently in staging. Please sign in with administrator credentials or contact IT administration."
+    }), 200
+
+
+# ==============================================================================
+# SECTION 19: RECIPIENT EMAIL MANAGEMENT (CRUD)
+# ==============================================================================
+
+EMAIL_REGEX = re.compile(r"^[\w\.\+\-]+@[a-zA-Z0-9\.\-]+\.[a-zA-Z]{2,}$")
+
+
+@api_bp.route("/v1/settings/email/recipients", methods=["GET"])
+def get_email_recipients_v1():
+    """Retrieves all configured receiver email addresses with metadata."""
+    from app.email_notifier import get_email_settings, parse_recipient_emails
+    cfg = get_email_settings()
+    recipients = parse_recipient_emails(cfg.get("recipient_emails"))
+    items = [{"id": email, "email": email, "status": "Active", "type": "Emergency Alert"} for email in recipients]
+    return jsonify({"success": True, "recipients": items, "count": len(items)}), 200
+
+
+@api_bp.route("/v1/settings/email/recipients", methods=["POST"])
+def add_email_recipient_v1():
+    """Adds a new receiver email address with validation and persistence."""
+    from app.email_notifier import get_email_settings, update_email_settings, parse_recipient_emails
+    data = request.get_json(silent=True) or {}
+    email = str(data.get("email") or "").strip()
+
+    if not email or not EMAIL_REGEX.match(email):
+        return jsonify({"error": "Invalid email address format.", "status_code": 400}), 400
+
+    cfg = get_email_settings()
+    existing = parse_recipient_emails(cfg.get("recipient_emails"))
+
+    if any(e.lower() == email.lower() for e in existing):
+        return jsonify({"error": "This email address is already registered as a receiver.", "status_code": 400}), 400
+
+    existing.append(email)
+    update_email_settings({"recipient_emails": ", ".join(existing)})
+
+    updated_items = [{"id": e, "email": e, "status": "Active", "type": "Emergency Alert"} for e in existing]
+    return jsonify({"success": True, "message": f"Added {email} to emergency receivers.", "recipients": updated_items}), 201
+
+
+@api_bp.route("/v1/settings/email/recipients", methods=["PUT"])
+def edit_email_recipient_v1():
+    """Edits / updates an existing receiver email address with validation and persistence."""
+    from app.email_notifier import get_email_settings, update_email_settings, parse_recipient_emails
+    data = request.get_json(silent=True) or {}
+    old_email = str(data.get("old_email") or data.get("id") or "").strip()
+    new_email = str(data.get("new_email") or data.get("email") or "").strip()
+
+    if not old_email:
+        return jsonify({"error": "Original email (old_email) is required.", "status_code": 400}), 400
+
+    if not new_email or not EMAIL_REGEX.match(new_email):
+        return jsonify({"error": "Invalid new email address format.", "status_code": 400}), 400
+
+    cfg = get_email_settings()
+    existing = parse_recipient_emails(cfg.get("recipient_emails"))
+
+    found_idx = None
+    for idx, e in enumerate(existing):
+        if e.lower() == old_email.lower():
+            found_idx = idx
+            break
+
+    if found_idx is None:
+        return jsonify({"error": f"Email '{old_email}' not found.", "status_code": 404}), 404
+
+    # Check if new email is already another entry
+    if any(idx != found_idx and e.lower() == new_email.lower() for idx, e in enumerate(existing)):
+        return jsonify({"error": f"Email '{new_email}' already exists in receiver list.", "status_code": 400}), 400
+
+    existing[found_idx] = new_email
+    update_email_settings({"recipient_emails": ", ".join(existing)})
+
+    updated_items = [{"id": e, "email": e, "status": "Active", "type": "Emergency Alert"} for e in existing]
+    return jsonify({"success": True, "message": f"Updated {old_email} to {new_email}.", "recipients": updated_items}), 200
+
+
+@api_bp.route("/v1/settings/email/recipients", methods=["DELETE"])
+def delete_email_recipient_v1():
+    """Removes a receiver email address with confirmation and persistence."""
+    from app.email_notifier import get_email_settings, update_email_settings, parse_recipient_emails
+    data = request.get_json(silent=True) or {}
+    email = str(data.get("email") or data.get("id") or request.args.get("email") or "").strip()
+
+    if not email:
+        return jsonify({"error": "Email address to delete is required.", "status_code": 400}), 400
+
+    cfg = get_email_settings()
+    existing = parse_recipient_emails(cfg.get("recipient_emails"))
+
+    if len(existing) <= 1:
+        return jsonify({"error": "Cannot delete the only configured receiver email. At least one receiver must remain.", "status_code": 400}), 400
+
+    new_list = [e for e in existing if e.lower() != email.lower()]
+    if len(new_list) == len(existing):
+        return jsonify({"error": f"Email '{email}' not found.", "status_code": 404}), 404
+
+    update_email_settings({"recipient_emails": ", ".join(new_list)})
+
+    updated_items = [{"id": e, "email": e, "status": "Active", "type": "Emergency Alert"} for e in new_list]
+    return jsonify({"success": True, "message": f"Removed {email} from emergency receivers.", "recipients": updated_items}), 200
+
 

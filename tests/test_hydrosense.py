@@ -555,6 +555,125 @@ class HydroSenseTestCase(unittest.TestCase):
         self.assertTrue(hasattr(wsgi, "application"))
         self.assertTrue(callable(wsgi.application))
 
+    # =========================================================================
+    # 12. Authentication, Password Security & Google OAuth Staging
+    # =========================================================================
+    def test_login_success_and_sanitization(self):
+        """POST /api/v1/auth/login with valid credentials establishes session and sanitizes password."""
+        res = self.client.post("/api/v1/auth/login", json={"username": "admin", "password": "admin123"})
+        self.assertEqual(res.status_code, 200)
+        data = res.get_json()
+        self.assertTrue(data.get("success"))
+        self.assertEqual(data["user"]["username"], "admin")
+        self.assertNotIn("password_hash", data["user"])
+
+        # Check /api/v1/auth/me reflects active session
+        res_me = self.client.get("/api/v1/auth/me")
+        self.assertEqual(res_me.status_code, 200)
+        me_data = res_me.get_json()
+        self.assertTrue(me_data.get("authenticated"))
+        self.assertEqual(me_data["user"]["username"], "admin")
+
+    def test_login_invalid_credentials(self):
+        """POST /api/v1/auth/login rejects incorrect passwords with 401."""
+        res = self.client.post("/api/v1/auth/login", json={"username": "admin", "password": "wrongpassword"})
+        self.assertEqual(res.status_code, 401)
+        data = res.get_json()
+        self.assertIn("Invalid username or password", data.get("error", ""))
+
+    def test_auth_logout(self):
+        """POST /api/v1/auth/logout terminates administrator session."""
+        self.client.post("/api/v1/auth/login", json={"username": "admin", "password": "admin123"})
+        res_logout = self.client.post("/api/v1/auth/logout")
+        self.assertEqual(res_logout.status_code, 200)
+
+        # After logout, /api/v1/auth/me is unauthenticated
+        res_me = self.client.get("/api/v1/auth/me")
+        self.assertEqual(res_me.status_code, 200)
+        self.assertFalse(res_me.get_json().get("authenticated"))
+
+    def test_change_password(self):
+        """POST /api/v1/auth/change-password validates current password and updates hash."""
+        # 1. Login
+        self.client.post("/api/v1/auth/login", json={"username": "admin", "password": "admin123"})
+
+        # 2. Try with wrong current password
+        res_bad = self.client.post("/api/v1/auth/change-password", json={
+            "current_password": "wrong_password",
+            "new_password": "newSecurePassword2026"
+        })
+        self.assertEqual(res_bad.status_code, 400)
+
+        # 3. Valid password change
+        res_ok = self.client.post("/api/v1/auth/change-password", json={
+            "current_password": "admin123",
+            "new_password": "newSecurePassword2026"
+        })
+        self.assertEqual(res_ok.status_code, 200)
+
+        # 4. Logout and verify new password works
+        self.client.post("/api/v1/auth/logout")
+        res_new_login = self.client.post("/api/v1/auth/login", json={
+            "username": "admin",
+            "password": "newSecurePassword2026"
+        })
+        self.assertEqual(res_new_login.status_code, 200)
+
+    def test_google_oauth_staging(self):
+        """POST /api/v1/auth/google returns institutional readiness information for Sphoorthy College."""
+        res = self.client.post("/api/v1/auth/google")
+        self.assertEqual(res.status_code, 200)
+        data = res.get_json()
+        self.assertFalse(data.get("enabled"))
+        self.assertIn("Sphoorthy Engineering College", data.get("institution", ""))
+
+    # =========================================================================
+    # 13. Email Receiver Management (CRUD)
+    # =========================================================================
+    def test_email_receiver_crud_operations(self):
+        """Verify adding, editing, and deleting receiver emails with persistence."""
+        # 1. GET recipients
+        res_get = self.client.get("/api/v1/settings/email/recipients")
+        self.assertEqual(res_get.status_code, 200)
+        initial = res_get.get_json()
+        self.assertTrue(initial.get("success"))
+        self.assertGreaterEqual(initial.get("count", 0), 1)
+
+        # 2. POST (Add new recipient)
+        res_add = self.client.post("/api/v1/settings/email/recipients", json={
+            "email": "dean.academics@sphoorthy.ac.in"
+        })
+        self.assertEqual(res_add.status_code, 201)
+        added_list = [r["email"] for r in res_add.get_json()["recipients"]]
+        self.assertIn("dean.academics@sphoorthy.ac.in", added_list)
+
+        # 3. PUT (Edit recipient)
+        res_edit = self.client.put("/api/v1/settings/email/recipients", json={
+            "old_email": "dean.academics@sphoorthy.ac.in",
+            "new_email": "principal@sphoorthy.ac.in"
+        })
+        self.assertEqual(res_edit.status_code, 200)
+        edited_list = [r["email"] for r in res_edit.get_json()["recipients"]]
+        self.assertIn("principal@sphoorthy.ac.in", edited_list)
+        self.assertNotIn("dean.academics@sphoorthy.ac.in", edited_list)
+
+        # 4. DELETE (Remove recipient)
+        res_del = self.client.delete("/api/v1/settings/email/recipients", json={
+            "email": "principal@sphoorthy.ac.in"
+        })
+        self.assertEqual(res_del.status_code, 200)
+        final_list = [r["email"] for r in res_del.get_json()["recipients"]]
+        self.assertNotIn("principal@sphoorthy.ac.in", final_list)
+
+    def test_sphoorthy_branding_in_template(self):
+        """Verify UI template contains HYDRO SENSE, Sphoorthy Engineering College, and no test email controls."""
+        res = self.client.get("/")
+        self.assertEqual(res.status_code, 200)
+        html = res.get_data(as_text=True)
+        self.assertIn("HYDRO SENSE", html)
+        self.assertIn("Sphoorthy Engineering College", html)
+        self.assertNotIn("Send Test Email", html)
+
 
 if __name__ == "__main__":
     unittest.main()
