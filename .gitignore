@@ -18,6 +18,7 @@ data/*.json.tmp*
 data/database.json
 backups/*.json
 backups/*.csv
+backups/backup_*/
 
 # Virtual environments
 venv/

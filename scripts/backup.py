@@ -234,7 +234,7 @@ def run_backup(
     db_path: str = DEFAULT_DB_PATH,
     output_dir: str = DEFAULT_BACKUP_DIR,
     file_format: str = "both",
-    retention_days: int = 30,
+    retention_days: int = 45,
     backup_type: str = "scheduled"
 ) -> Dict[str, Any]:
     """
@@ -317,7 +317,7 @@ if __name__ == "__main__":
     parser.add_argument("--db-path", default=DEFAULT_DB_PATH, help="Path to database JSON file")
     parser.add_argument("--output-dir", default=DEFAULT_BACKUP_DIR, help="Directory to save backup files")
     parser.add_argument("--format", choices=["json", "csv", "both"], default="both", help="Export format")
-    parser.add_argument("--retention-days", type=int, default=30, help="Days to retain backup files")
+    parser.add_argument("--retention-days", type=int, default=45, help="Days to retain backup files")
     parser.add_argument("--type", choices=["scheduled", "manual"], default="scheduled", help="Backup trigger type")
 
     args = parser.parse_args()

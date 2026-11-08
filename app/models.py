@@ -612,6 +612,13 @@ def insert_telemetry(payload: Dict[str, Any], db: Optional[Any] = None) -> Dict[
             db=database,
         )
 
+    # Automated 15-Day Backup & 45-Day Data Retention Subsystem
+    try:
+        from app.retention import trigger_scheduled_maintenance_if_due
+        trigger_scheduled_maintenance_if_due(db=database)
+    except Exception:
+        pass
+
     reading_payload = {
         "id": reading_id,
         "reading_id": reading_id,

@@ -970,3 +970,55 @@ def delete_email_recipient_v1():
     return jsonify({"success": True, "message": f"Removed {email} from emergency receivers.", "recipients": updated_items}), 200
 
 
+# ==============================================================================
+# SECTION 20: AUTOMATED 15-DAY BACKUP & 45-DAY DATA RETENTION
+# ==============================================================================
+
+@api_bp.route("/v1/maintenance/run", methods=["POST"])
+def run_maintenance_v1():
+    """
+    Triggers the automated maintenance cycle:
+    1. Creates a 15-day backup folder in `backups/` if due (or forced).
+    2. Permanently deletes telemetry readings older than 45 days.
+    """
+    from app.retention import check_and_run_automated_maintenance
+    force = request.args.get("force", "false").lower() in ("true", "1", "yes")
+    result = check_and_run_automated_maintenance(force=force)
+    return jsonify(result), 200
+
+
+@api_bp.route("/v1/maintenance/status", methods=["GET"])
+def maintenance_status_v1():
+    """
+    Returns system storage status, telemetry age range, and backup cadence.
+    """
+    db = get_db()
+    data = db.get_data()
+    telemetry = data.get("telemetry", [])
+    backup_records = data.get("backup_records", [])
+    meta = data.get("system_metadata", {})
+
+    oldest_ts = None
+    newest_ts = None
+    if telemetry:
+        sorted_t = sorted(telemetry, key=lambda x: str(x.get("timestamp", "")))
+        oldest_ts = sorted_t[0].get("timestamp")
+        newest_ts = sorted_t[-1].get("timestamp")
+
+    return jsonify({
+        "success": True,
+        "status": "success",
+        "retention_days": 45,
+        "backup_cadence_days": 15,
+        "telemetry_count": len(telemetry),
+        "current_telemetry_count": len(telemetry),
+        "oldest_reading_timestamp": oldest_ts,
+        "newest_reading_timestamp": newest_ts,
+        "last_automated_backup_at": meta.get("last_automated_backup_at"),
+        "last_backup_folder": meta.get("last_backup_folder"),
+        "last_purge_at": meta.get("last_purge_at"),
+        "total_backups_count": len(backup_records),
+    }), 200
+
+
+

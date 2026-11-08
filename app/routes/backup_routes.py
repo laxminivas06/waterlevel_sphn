@@ -27,9 +27,9 @@ def create_backup():
     payload = request.get_json(silent=True) or {}
     file_format = payload.get("format", "both")
 
-    if not isinstance(file_format, str) or file_format.lower() not in ("json", "csv", "both"):
+    if not isinstance(file_format, str) or file_format.lower() not in ("json", "csv", "both", "folder"):
         return jsonify({
-            "error": "Invalid format parameter. Must be 'json', 'csv', or 'both'",
+            "error": "Invalid format parameter. Must be 'json', 'csv', 'both', or 'folder'",
             "status_code": 400
         }), 400
 
@@ -38,17 +38,21 @@ def create_backup():
     output_dir = current_app.config.get("BACKUP_DIR", Config.BACKUP_DIR)
 
     try:
-        result = run_backup(
-            db_path=db_path,
-            output_dir=output_dir,
-            file_format=file_format,
-            retention_days=30,
-            backup_type="manual"
-        )
+        if file_format == "folder":
+            from app.retention import create_15_day_backup_snapshot
+            result = create_15_day_backup_snapshot(backup_type="manual")
+        else:
+            result = run_backup(
+                db_path=db_path,
+                output_dir=output_dir,
+                file_format=file_format,
+                retention_days=45,
+                backup_type="manual"
+            )
         return jsonify({
             "status": "success",
             "message": "Backup created successfully",
-            "filename": result["filename"],
+            "filename": result.get("filename") or result.get("folder_name"),
             "backup": result,
             "status_code": 201
         }), 201

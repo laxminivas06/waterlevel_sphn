@@ -37,6 +37,11 @@ from app.models import (
     register_device,
     create_or_update_tank,
 )
+from app.retention import (
+    create_15_day_backup_snapshot,
+    purge_telemetry_older_than,
+    check_and_run_automated_maintenance,
+)
 from scripts.init_db import apply_schema, seed_database
 
 
@@ -673,6 +678,94 @@ class HydroSenseTestCase(unittest.TestCase):
         self.assertIn("HYDRO SENSE", html)
         self.assertIn("Sphoorthy Engineering College", html)
         self.assertNotIn("Send Test Email", html)
+
+    # =========================================================================
+    # 14. Automated 15-Day Backup & 45-Day Data Retention
+    # =========================================================================
+    def test_15_day_backup_and_45_day_purge(self):
+        """Verify automated 15-day backup folder generation and permanent 45-day retention purge."""
+        db = get_db(self.db_path)
+
+        # Insert telemetry: one reading 50 days old, one reading 10 days old
+        now = datetime.now()
+        ts_old = (now - timedelta(days=50)).strftime("%Y-%m-%d %H:%M:%S")
+        ts_recent = (now - timedelta(days=10)).strftime("%Y-%m-%d %H:%M:%S")
+
+        db.insert("telemetry", {
+            "device_id": "SV_BLOCK_OVER_TANK",
+            "distance_cm": 80.0,
+            "water_height": 120.0,
+            "water_percentage": 60.0,
+            "water_volume": 600.0,
+            "status": "NORMAL",
+            "timestamp": ts_old,
+            "date": ts_old[:10]
+        })
+        db.insert("telemetry", {
+            "device_id": "SV_BLOCK_OVER_TANK",
+            "distance_cm": 40.0,
+            "water_height": 160.0,
+            "water_percentage": 80.0,
+            "water_volume": 800.0,
+            "status": "NORMAL",
+            "timestamp": ts_recent,
+            "date": ts_recent[:10]
+        })
+        db.save()
+
+        # Run automated maintenance with force=True using temporary backup directory
+        with tempfile.TemporaryDirectory() as tmp_backup_dir:
+            result = check_and_run_automated_maintenance(
+                db=db,
+                backup_cadence_days=15,
+                retention_days=45,
+                backup_dir=tmp_backup_dir,
+                force=True
+            )
+
+            self.assertTrue(result["success"])
+            self.assertTrue(result["backup_created"])
+            self.assertGreaterEqual(result["purged_records"], 1)
+
+            # Verify backup folder structure
+            folder_name = result["backup_folder"]
+            full_folder_path = os.path.join(tmp_backup_dir, folder_name)
+            self.assertTrue(os.path.isdir(full_folder_path))
+            self.assertTrue(os.path.isfile(os.path.join(full_folder_path, "database.json")))
+            self.assertTrue(os.path.isfile(os.path.join(full_folder_path, "telemetry.json")))
+            self.assertTrue(os.path.isfile(os.path.join(full_folder_path, "telemetry.csv")))
+            self.assertTrue(os.path.isfile(os.path.join(full_folder_path, "metadata.json")))
+
+            # Verify metadata
+            with open(os.path.join(full_folder_path, "metadata.json"), "r", encoding="utf-8") as f:
+                meta = json.load(f)
+                self.assertEqual(meta["cadence_days"], 15)
+                self.assertEqual(meta["retention_policy_days"], 45)
+
+            # Verify active database: old record is permanently purged, recent record remains
+            telemetry_records = db.get("telemetry", [])
+            timestamps = [r.get("timestamp") for r in telemetry_records]
+            self.assertNotIn(ts_old, timestamps)
+            self.assertIn(ts_recent, timestamps)
+
+    def test_maintenance_endpoints(self):
+        """Verify GET /api/v1/maintenance/status and POST /api/v1/maintenance/run endpoints."""
+        # Check status
+        res_status = self.client.get("/api/v1/maintenance/status")
+        self.assertEqual(res_status.status_code, 200)
+        data = res_status.get_json()
+        self.assertTrue(data["success"])
+        self.assertEqual(data["backup_cadence_days"], 15)
+        self.assertEqual(data["retention_days"], 45)
+        self.assertIn("current_telemetry_count", data)
+
+        # Trigger run
+        res_run = self.client.post("/api/v1/maintenance/run?force=true")
+        self.assertEqual(res_run.status_code, 200)
+        run_data = res_run.get_json()
+        self.assertTrue(run_data["success"])
+        self.assertTrue(run_data["backup_created"])
+        self.assertIn("backup_folder", run_data)
 
 
 if __name__ == "__main__":
