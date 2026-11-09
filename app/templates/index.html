@@ -149,10 +149,12 @@
     const API = {
       async getCurrent() {
         const res = await fetch('/api/water-level/current');
+        if (!res.ok) throw new Error(`HTTP ${res.status}: ${res.statusText}`);
         return await res.json();
       },
       async getTankHistory(tankId, range = '24h') {
         const res = await fetch(`/api/v1/tanks/${tankId}/history?range=${range}`);
+        if (!res.ok) throw new Error(`HTTP ${res.status}: ${res.statusText}`);
         return await res.json();
       },
       async saveTank(data) {

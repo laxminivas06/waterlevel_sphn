@@ -656,7 +656,7 @@ def legacy_water_level_current():
     if needs_refresh and not current_app.config.get("TESTING"):
         try:
             from app.background_updater import update_telemetry_time_once
-            update_telemetry_time_once()
+            update_telemetry_time_once(db=get_db())
             latest = get_latest_telemetry(tank_id=tank_id)
         except Exception:
             pass

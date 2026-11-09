@@ -127,3 +127,15 @@ def stop_background_updater() -> bool:
         _RUNNING = False
         return True
 
+
+if __name__ == "__main__":
+    print(f"Starting HydroSense background updater (interval={_INTERVAL_SECONDS}s)...")
+    start_background_updater(_INTERVAL_SECONDS)
+    try:
+        while True:
+            time.sleep(1)
+    except KeyboardInterrupt:
+        stop_background_updater()
+        print("Stopped background updater.")
+
+
