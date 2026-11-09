@@ -76,3 +76,4 @@ def parse_to_ist(val: Any) -> Tuple[str, str]:
     except Exception:
         now = get_ist_now()
         return now.strftime("%Y-%m-%d %H:%M:%S"), now.strftime("%Y-%m-%d")
+
