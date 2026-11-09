@@ -30,6 +30,7 @@ from typing import Any, Dict, List, Optional, Tuple, Union
 from flask import Blueprint, current_app, jsonify, request, session
 
 from app.database import get_db
+from app.time_utils import get_ist_now, get_ist_now_str, parse_to_ist
 from app.models import (
     acknowledge_alert,
     calculate_tank_physics,
@@ -512,7 +513,7 @@ def simulate_reading_v1():
 @api_bp.route("/health", methods=["GET"])
 def health_check_v1():
     """Probes JSON database and API operational status."""
-    now_ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    now_ts = get_ist_now_str()
     try:
         db = get_db()
         tank_count = len(db.get("tanks", []))
@@ -709,7 +710,7 @@ def legacy_daily_stats():
 
 @api_bp.route("/history/readings", methods=["GET"])
 def legacy_readings():
-    date_str = request.args.get("date") or datetime.now().strftime("%Y-%m-%d")
+    date_str = request.args.get("date") or get_ist_now_str("%Y-%m-%d")
     device_id = request.args.get("device_id")
     readings = get_readings_by_date(date_str, device_id)
     return jsonify({"date": date_str, "reading_count": len(readings), "readings": readings}), 200
@@ -717,8 +718,8 @@ def legacy_readings():
 
 @api_bp.route("/history/compare", methods=["GET"])
 def legacy_compare():
-    d1 = request.args.get("date1", datetime.now().strftime("%Y-%m-%d"))
-    d2 = request.args.get("date2", datetime.now().strftime("%Y-%m-%d"))
+    d1 = request.args.get("date1", get_ist_now_str("%Y-%m-%d"))
+    d2 = request.args.get("date2", get_ist_now_str("%Y-%m-%d"))
     return jsonify(compare_dates(d1, d2)), 200
 
 

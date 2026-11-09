@@ -24,6 +24,7 @@ if PROJECT_ROOT not in sys.path:
 
 from app.config import Config
 from app.database import get_db, JsonDatabase
+from app.time_utils import get_ist_now, get_ist_now_str
 
 DEFAULT_DB_PATH = Config.DATABASE_PATH
 DEFAULT_BACKUP_DIR = Config.BACKUP_DIR
@@ -70,7 +71,7 @@ def export_json(
 
     backup_payload = {
         "metadata": {
-            "created_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "created_at": get_ist_now_str(),
             "format": "json",
             "version": "2.1.0",
             "tanks_count": len(tanks),
@@ -212,7 +213,7 @@ def log_backup_to_db(
     error_message: Optional[str] = None
 ) -> None:
     """Inserts an audit log into backup_records with schema compatibility."""
-    now_ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    now_ts = get_ist_now_str()
     record = {
         "backup_type": backup_type,
         "file_format": file_format,
@@ -250,7 +251,7 @@ def run_backup(
     verify_json_db(db_path)
 
     os.makedirs(output_dir, exist_ok=True)
-    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+    ts = get_ist_now().strftime("%Y%m%d_%H%M%S")
 
     database = get_db(db_path)
     created_files = []

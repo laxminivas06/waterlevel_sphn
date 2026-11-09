@@ -30,6 +30,10 @@ except ImportError:
 # Absolute path resolution from config
 PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 try:
+    from app.time_utils import get_ist_now_str
+except ImportError:
+    get_ist_now_str = lambda: datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+try:
     from app.config import DATABASE_PATH as DEFAULT_DB_PATH
 except ImportError:
     DEFAULT_DB_PATH = os.path.abspath(os.path.join(PROJECT_ROOT, "data", "database.json"))
@@ -41,7 +45,7 @@ _REGISTRY_LOCK = threading.Lock()
 
 def get_default_seed_data() -> Dict[str, Any]:
     """Returns factory default records for all system collections."""
-    now_ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    now_ts = get_ist_now_str()
     return {
         "users": [
             {

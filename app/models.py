@@ -19,6 +19,7 @@ from typing import Any, Dict, List, Optional, Tuple, Union
 from werkzeug.security import generate_password_hash, check_password_hash
 
 from app.database import get_db, JsonDatabase
+from app.time_utils import get_ist_now, get_ist_now_str, parse_to_ist
 
 
 # ==============================================================================
@@ -67,14 +68,19 @@ def create_or_update_tank(tank_data: Dict[str, Any], db: Optional[Any] = None) -
     radius_cm = float(tank_data["radius_cm"]) if tank_data.get("radius_cm") is not None else None
 
     # Auto-calculate dimensions if shape is provided without explicit dimensions
-    if shape == "cylinder" and radius_cm is None and total_capacity > 0 and tank_height > 0:
-        radius_cm = round(math.sqrt((total_capacity * 1000.0) / (math.pi * tank_height)), 2)
-    elif shape == "rectangle" and (length_cm is None or width_cm is None) and total_capacity > 0 and tank_height > 0:
-        side = round(math.sqrt((total_capacity * 1000.0) / tank_height), 2)
-        length_cm = side
-        width_cm = side
+    if shape == "cylinder":
+        if radius_cm is None and total_capacity > 0 and tank_height > 0:
+            radius_cm = round(math.sqrt((total_capacity * 1000.0) / (math.pi * tank_height)), 2)
+        length_cm = None
+        width_cm = None
+    elif shape == "rectangle":
+        if (length_cm is None or width_cm is None) and total_capacity > 0 and tank_height > 0:
+            side = round(math.sqrt((total_capacity * 1000.0) / tank_height), 2)
+            length_cm = side
+            width_cm = side
+        radius_cm = None
 
-    now_ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    now_ts = get_ist_now_str()
 
     tanks = database.get("tanks", [])
     found_idx = None
@@ -95,12 +101,14 @@ def create_or_update_tank(tank_data: Dict[str, Any], db: Optional[Any] = None) -
             existing["sensor_offset_cm"] = sensor_offset
         if tank_data.get("total_capacity_litres") is not None:
             existing["total_capacity_litres"] = total_capacity
-        if radius_cm is not None:
+        if shape == "cylinder":
             existing["radius_cm"] = radius_cm
-        if length_cm is not None:
+            existing["length_cm"] = None
+            existing["width_cm"] = None
+        elif shape == "rectangle":
             existing["length_cm"] = length_cm
-        if width_cm is not None:
             existing["width_cm"] = width_cm
+            existing["radius_cm"] = None
         if tank_data.get("safe_max_percent") is not None:
             existing["safe_max_percent"] = safe_max_pct
         if tank_data.get("critical_low_percent") is not None:
@@ -184,18 +192,19 @@ def calculate_tank_physics(
             if reported_litres is not None and float(reported_litres) > 0:
                 volume = round(float(reported_litres), 2)
             else:
+                ratio_vol = round((pct / 100.0) * total_capacity, 2)
                 shape = tank.get("shape", "cylinder")
                 if shape == "cylinder" and tank.get("radius_cm"):
                     r = float(tank["radius_cm"])
                     computed_litres = round((math.pi * (r ** 2) * water_height) / 1000.0, 2)
-                    volume = min(total_capacity, computed_litres)
+                    volume = ratio_vol if abs(computed_litres - ratio_vol) > 5.0 else min(total_capacity, computed_litres)
                 elif shape == "rectangle" and tank.get("length_cm") and tank.get("width_cm"):
                     l = float(tank["length_cm"])
                     w = float(tank["width_cm"])
                     computed_litres = round((l * w * water_height) / 1000.0, 2)
-                    volume = min(total_capacity, computed_litres)
+                    volume = ratio_vol if abs(computed_litres - ratio_vol) > 5.0 else min(total_capacity, computed_litres)
                 else:
-                    volume = round((pct / 100.0) * total_capacity, 2)
+                    volume = ratio_vol
 
             if pct > 100.0:
                 status = "OVERLOADED"
@@ -308,18 +317,19 @@ def calculate_tank_physics(
     pct = round(max(0.0, min(100.0, (water_height / tank_height) * 100.0)), 2)
 
     # Use geometry calculation if shape is rectangular or cylindrical, else linear ratio
+    ratio_vol = round((pct / 100.0) * total_capacity, 2)
     shape = tank.get("shape", "cylinder")
     if shape == "cylinder" and tank.get("radius_cm"):
         r = float(tank["radius_cm"])
         computed_litres = round((math.pi * (r ** 2) * water_height) / 1000.0, 2)
-        volume = min(total_capacity, computed_litres)
+        volume = ratio_vol if abs(computed_litres - ratio_vol) > 5.0 else min(total_capacity, computed_litres)
     elif shape == "rectangle" and tank.get("length_cm") and tank.get("width_cm"):
         l = float(tank["length_cm"])
         w = float(tank["width_cm"])
         computed_litres = round((l * w * water_height) / 1000.0, 2)
-        volume = min(total_capacity, computed_litres)
+        volume = ratio_vol if abs(computed_litres - ratio_vol) > 5.0 else min(total_capacity, computed_litres)
     else:
-        volume = round((pct / 100.0) * total_capacity, 2)
+        volume = ratio_vol
 
     # Determine status (Section 7)
     if pct <= crit_low_pct:
@@ -385,7 +395,7 @@ def register_device(
 ) -> Dict[str, Any]:
     """Registers a new device or updates an existing device credentials idempotently."""
     database = db if isinstance(db, JsonDatabase) else get_db()
-    now_ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    now_ts = get_ist_now_str()
 
     # If tank_id is supplied, verify tank exists; if not, auto-create matching tank
     if tank_id:
@@ -450,7 +460,7 @@ def get_device_with_status(device_id: str, offline_threshold: int = 300, db: Opt
         # Parse last seen timestamp
         clean_ts = last_seen_str.replace("T", " ")[:19]
         last_seen_dt = datetime.strptime(clean_ts, "%Y-%m-%d %H:%M:%S")
-        diff_sec = int((datetime.now() - last_seen_dt).total_seconds())
+        diff_sec = int((get_ist_now() - last_seen_dt).total_seconds())
         diff_sec = max(0, diff_sec)
 
         is_online = (diff_sec <= offline_threshold)
@@ -535,9 +545,8 @@ def insert_telemetry(payload: Dict[str, Any], db: Optional[Any] = None) -> Dict[
         reported_litres=reported_litres,
     )
 
-    now_ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    timestamp = payload.get("timestamp") or now_ts
-    date_str = timestamp[:10]
+    # Normalize timestamp and date strictly to Indian Standard Time (IST)
+    timestamp, date_str = parse_to_ist(payload.get("timestamp"))
 
     record = {
         "device_id": device_id,
@@ -690,16 +699,20 @@ def get_tank_history(
     database = db if isinstance(db, JsonDatabase) else get_db()
     telemetry = database.get("telemetry", [])
 
-    now = datetime.now()
-    if range_key == "24h":
+    now = get_ist_now()
+    range_norm = str(range_key or "24h").lower().strip()
+    if range_norm == "24h":
         start_ts = (now - timedelta(hours=24)).strftime("%Y-%m-%d %H:%M:%S")
         end_ts = now.strftime("%Y-%m-%d %H:%M:%S")
-    elif range_key == "7d":
+    elif range_norm == "7d":
         start_ts = (now - timedelta(days=7)).strftime("%Y-%m-%d %H:%M:%S")
         end_ts = now.strftime("%Y-%m-%d %H:%M:%S")
-    elif range_key == "15d":
+    elif range_norm == "15d":
         start_ts = (now - timedelta(days=15)).strftime("%Y-%m-%d %H:%M:%S")
         end_ts = now.strftime("%Y-%m-%d %H:%M:%S")
+    elif range_norm in ("all", "all_time", "past"):
+        start_ts = "2000-01-01 00:00:00"
+        end_ts = "2099-12-31 23:59:59"
     elif start_date and end_date:
         start_ts = f"{start_date} 00:00:00"
         end_ts = f"{end_date} 23:59:59"
@@ -709,13 +722,18 @@ def get_tank_history(
 
     filtered = [
         t for t in telemetry
-        if t.get("tank_id") == tank_id and start_ts <= str(t.get("timestamp", "")) <= end_ts
+        if (t.get("tank_id") == tank_id or t.get("device_id") == tank_id or tank_id in ("all", "*"))
+        and start_ts <= str(t.get("timestamp", "")) <= end_ts
     ]
 
     # Sort chronological (ascending)
     filtered = sorted(filtered, key=lambda x: (str(x.get("timestamp", "")), int(x.get("id") or 0)))
-    if limit:
+    if limit and range_norm not in ("all", "all_time", "past"):
         filtered = filtered[:limit]
+    elif limit and range_norm in ("all", "all_time", "past"):
+        # Allow up to 10000 records for 'all' range
+        max_all_limit = max(limit, 10000)
+        filtered = filtered[:max_all_limit]
 
     rows = [copy.deepcopy(r) for r in filtered]
 
@@ -852,7 +870,7 @@ def create_alert(
 ) -> int:
     """Creates a new operational alert if an identical active alert does not exist within the last 10 minutes."""
     database = db if isinstance(db, JsonDatabase) else get_db()
-    now_dt = datetime.now()
+    now_dt = get_ist_now()
     now_ts = now_dt.strftime("%Y-%m-%d %H:%M:%S")
     ten_mins_ago = (now_dt - timedelta(minutes=10)).strftime("%Y-%m-%d %H:%M:%S")
 
@@ -900,7 +918,7 @@ def get_alerts(tank_id: Optional[str] = None, unacknowledged_only: bool = True, 
 def acknowledge_alert(alert_id: int, db: Optional[Any] = None) -> bool:
     """Marks an alert as acknowledged."""
     database = db if isinstance(db, JsonDatabase) else get_db()
-    now_ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    now_ts = get_ist_now_str()
     count = database.update(
         "alerts",
         lambda a: int(a.get("id") or 0) == alert_id,
@@ -925,7 +943,7 @@ def record_backup(
 ) -> int:
     """Records an automated or manual backup execution."""
     database = db if isinstance(db, JsonDatabase) else get_db()
-    now_ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    now_ts = get_ist_now_str()
     record = {
         "filename": filename,
         "file_path": file_path,
@@ -962,7 +980,7 @@ def get_backup_logs(limit: int = 50, db: Optional[Any] = None) -> List[Dict[str,
 def insert_backup_log(log_dict: Dict[str, Any], db: Optional[Any] = None) -> int:
     """Compatibility adapter for backup logging."""
     database = db if isinstance(db, JsonDatabase) else get_db()
-    now_ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    now_ts = get_ist_now_str()
     record = {
         "filename": log_dict.get("filename", "backup"),
         "file_path": log_dict.get("file_path", ""),
@@ -1079,7 +1097,7 @@ def get_today_summary(device_id: Optional[str] = None, date_str: Optional[str] =
     """Computes daily scorecard aggregates for legacy dashboard."""
     database = db if isinstance(db, JsonDatabase) else get_db()
     telemetry = database.get("telemetry", [])
-    target_date = date_str or datetime.now().strftime("%Y-%m-%d")
+    target_date = date_str or get_ist_now_str("%Y-%m-%d")
 
     records = [t for t in telemetry if t.get("date") == target_date]
     if device_id:
@@ -1133,7 +1151,7 @@ def get_daily_stats(days: int = 15, device_id: Optional[str] = None, db: Optiona
     """Calculates daily aggregates for the past N calendar days."""
     database = db if isinstance(db, JsonDatabase) else get_db()
     telemetry = database.get("telemetry", [])
-    cutoff_date = (datetime.now() - timedelta(days=max(0, days - 1))).strftime("%Y-%m-%d")
+    cutoff_date = (get_ist_now() - timedelta(days=max(0, days - 1))).strftime("%Y-%m-%d")
 
     records = [t for t in telemetry if str(t.get("date", "")) >= cutoff_date]
     if device_id:
@@ -1277,7 +1295,7 @@ def update_user_password(user_id: int, new_password: str, db: Optional[Any] = No
     for u in users:
         if u.get("id") == user_id:
             u["password_hash"] = generate_password_hash(new_password)
-            u["updated_at"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            u["updated_at"] = get_ist_now_str()
             database.set("users", users)
             return True
     return False

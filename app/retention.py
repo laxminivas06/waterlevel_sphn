@@ -22,6 +22,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from app.config import Config
 from app.database import get_db, JsonDatabase
+from app.time_utils import get_ist_now, get_ist_now_str
 
 logger = logging.getLogger("hydrosense.retention")
 
@@ -50,7 +51,7 @@ def create_15_day_backup_snapshot(
     target_dir = backup_dir or Config.BACKUP_DIR
     os.makedirs(target_dir, exist_ok=True)
 
-    now = datetime.now()
+    now = get_ist_now()
     ts_str = now.strftime("%Y%m%d_%H%M%S")
     folder_name = f"backup_{ts_str}"
     backup_folder_path = os.path.join(target_dir, folder_name)
@@ -156,7 +157,7 @@ def purge_telemetry_older_than(days: int = RETENTION_DAYS, db: Optional[Any] = N
     Persists changes permanently to disk.
     """
     database = db if isinstance(db, JsonDatabase) else get_db()
-    cutoff_dt = datetime.now() - timedelta(days=days)
+    cutoff_dt = get_ist_now() - timedelta(days=days)
     cutoff_ts_str = cutoff_dt.strftime("%Y-%m-%d %H:%M:%S")
     cutoff_date_str = cutoff_dt.strftime("%Y-%m-%d")
 
@@ -198,7 +199,7 @@ def purge_telemetry_older_than(days: int = RETENTION_DAYS, db: Optional[Any] = N
 
         # Record metadata
         meta = database.get("system_metadata", {})
-        meta["last_purge_at"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        meta["last_purge_at"] = get_ist_now_str()
         meta["last_purged_count"] = purged_telemetry
         meta["retention_days"] = days
         database.set("system_metadata", meta)
@@ -229,7 +230,7 @@ def check_and_run_automated_maintenance(
     Then permanently purges records older than 45 days.
     """
     database = db if isinstance(db, JsonDatabase) else get_db()
-    now = datetime.now()
+    now = get_ist_now()
 
     # Determine last backup time
     backup_records = database.get("backup_records", [])

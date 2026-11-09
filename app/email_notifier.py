@@ -32,6 +32,7 @@ except ImportError:
     current_app = None
 
 from app.database import get_db, JsonDatabase
+from app.time_utils import get_ist_now, get_ist_now_str
 
 logger = logging.getLogger("hydrosense.email")
 
@@ -213,7 +214,7 @@ def send_smtp_email(
         server.quit()
 
         # Update last sent timestamp
-        now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        now_str = get_ist_now_str()
         try:
             database = db if isinstance(db, JsonDatabase) else get_db()
             curr = database.get("email_settings", {})
@@ -254,7 +255,7 @@ def build_overfill_email_content(
     vol = float(metrics.get("water_volume", 0.0))
     cap = float(tank.get("total_capacity_litres", 1000.0))
     overflow_litres = max(0.0, round(vol - cap, 1))
-    now_ts = datetime.now().strftime("%Y-%m-%d %I:%M:%S %p")
+    now_ts = get_ist_now().strftime("%Y-%m-%d %I:%M:%S %p IST")
     recipients_str = ", ".join(recipient_list)
 
     subject = f"🚨 CRITICAL ALERT: Water Tank Overfill Detected - {tank_name} ({pct:.1f}%)"
@@ -374,7 +375,7 @@ Notification Dispatched To: {recipients_str}
 
 def build_test_email_content(recipients: List[str], tank_name: str = "SV Block Overhead Tank") -> Tuple[str, str, str]:
     """Generates confirmation email when user clicks 'Send Test Email' in Settings."""
-    now_ts = datetime.now().strftime("%Y-%m-%d %I:%M:%S %p")
+    now_ts = get_ist_now().strftime("%Y-%m-%d %I:%M:%S %p IST")
     recipients_str = ", ".join(recipients)
 
     subject = f"✅ Test Notification: HydroSense IoT Email Alerts Active - {tank_name}"
@@ -472,7 +473,7 @@ def trigger_overfill_email_alert(
 
     # 2. Check Cooldown Debounce (default 15 minutes)
     cooldown_mins = int(settings.get("cooldown_minutes", DEFAULT_COOLDOWN_MINUTES))
-    now = datetime.now()
+    now = get_ist_now()
 
     with _COOLDOWN_LOCK:
         last_sent = _LAST_OVERFILL_EMAIL_SENT.get(tank_id)

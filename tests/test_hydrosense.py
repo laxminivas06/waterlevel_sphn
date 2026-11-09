@@ -42,6 +42,7 @@ from app.retention import (
     purge_telemetry_older_than,
     check_and_run_automated_maintenance,
 )
+from app.time_utils import get_ist_now, get_ist_now_str, parse_to_ist
 from scripts.init_db import apply_schema, seed_database
 
 
@@ -766,6 +767,68 @@ class HydroSenseTestCase(unittest.TestCase):
         self.assertTrue(run_data["success"])
         self.assertTrue(run_data["backup_created"])
         self.assertIn("backup_folder", run_data)
+
+    # =========================================================================
+    # 15. IST Timezone Normalization & 5 Lakh Litres Tank Scaling
+    # =========================================================================
+    def test_ist_timezone_normalization(self):
+        """Verify server timestamps normalize to Indian Standard Time (IST, UTC+05:30)."""
+        # Test UTC ISO string conversion: 07:05:00 UTC == 12:35:00 IST
+        ts_ist, date_ist = parse_to_ist("2026-11-09T07:05:00Z")
+        self.assertEqual(ts_ist, "2026-11-09 12:35:00")
+        self.assertEqual(date_ist, "2026-11-09")
+
+        # Telemetry ingestion with UTC ISO converts to IST
+        payload = {
+            "device_id": "SV_BLOCK_OVER_TANK",
+            "distance_cm": 50.0,
+            "timestamp": "2026-11-09T07:05:00Z"
+        }
+        res = self.client.post("/api/v1/telemetry", json=payload, headers={"X-API-Key": "water_secret_key_2026"})
+        self.assertEqual(res.status_code, 201)
+        reading = res.get_json()["reading"]
+        self.assertEqual(reading["timestamp"], "2026-11-09 12:35:00")
+        self.assertEqual(reading["date"], "2026-11-09")
+
+    def test_tank_capacity_upto_5_lakh_litres(self):
+        """Verify tank geometry and physics smoothly scale up to 5,00,000 Litres (5 Lakh L)."""
+        # 1. Update tank capacity to 500,000 Litres
+        tank_update = {
+            "tank_id": "SV_BLOCK_OVER_TANK",
+            "tank_name": "Sphoorthy Central Reservoir",
+            "shape": "cylinder",
+            "total_capacity_litres": 500000.0,
+            "tank_height_cm": 200.0,
+            "sensor_offset_cm": 15.0,
+        }
+        res_tank = self.client.post("/api/v1/tanks", json=tank_update)
+        self.assertIn(res_tank.status_code, (200, 201))
+        tank = res_tank.get_json()["tank"]
+        self.assertEqual(tank["total_capacity_litres"], 500000.0)
+
+        # 2. Ingest 50% water level -> volume must be 250,000 Litres
+        p50 = {"device_id": "SV_BLOCK_OVER_TANK", "water_level_percent": 50.0, "distance_cm": 115.0}
+        r50 = self.client.post("/api/v1/telemetry", json=p50, headers={"X-API-Key": "water_secret_key_2026"}).get_json()["reading"]
+        self.assertAlmostEqual(r50["water_volume"], 250000.0, delta=100.0)
+
+        # 3. Ingest 100% water level -> volume must be 500,000 Litres
+        p100 = {"device_id": "SV_BLOCK_OVER_TANK", "water_level_percent": 100.0, "distance_cm": 15.0}
+        r100 = self.client.post("/api/v1/telemetry", json=p100, headers={"X-API-Key": "water_secret_key_2026"}).get_json()["reading"]
+        self.assertAlmostEqual(r100["water_volume"], 500000.0, delta=100.0)
+
+        # 4. Ingest 2% water level -> volume must be 10,000 Litres (2% of 500,000 L, not inverted 98%)
+        p2 = {"device_id": "SV_BLOCK_OVER_TANK", "water_level_percent": 2.0, "distance_cm": 211.0}
+        r2 = self.client.post("/api/v1/telemetry", json=p2, headers={"X-API-Key": "water_secret_key_2026"}).get_json()["reading"]
+        self.assertEqual(r2["water_percentage"], 2.0)
+        self.assertAlmostEqual(r2["water_volume"], 10000.0, delta=100.0)
+
+    def test_all_range_history_and_tabular_support(self):
+        """Verify GET /api/v1/tanks/<tank_id>/history?range=all returns all past telemetry for tabular view."""
+        res = self.client.get("/api/v1/tanks/SV_BLOCK_OVER_TANK/history?range=all")
+        self.assertEqual(res.status_code, 200)
+        data = res.get_json()
+        self.assertEqual(data["range"], "all")
+        self.assertIn("data", data)
 
 
 if __name__ == "__main__":
