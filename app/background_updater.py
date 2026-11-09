@@ -126,3 +126,4 @@ def stop_background_updater() -> bool:
     with _THREAD_LOCK:
         _RUNNING = False
         return True
+
