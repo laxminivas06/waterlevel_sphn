@@ -638,6 +638,29 @@ def legacy_water_level_current():
 
     tank_id = target_tank.get("tank_id", "SV_BLOCK_OVER_TANK")
     latest = get_latest_telemetry(tank_id=tank_id)
+
+    # 25-second backend freshness check: keep timestamp continuously up-to-date
+    now = get_ist_now()
+    needs_refresh = False
+    if not latest or not latest.get("timestamp"):
+        needs_refresh = True
+    else:
+        try:
+            ts_clean = str(latest["timestamp"]).replace("T", " ")[:19]
+            ts_dt = datetime.strptime(ts_clean, "%Y-%m-%d %H:%M:%S")
+            if (now - ts_dt).total_seconds() >= 25.0:
+                needs_refresh = True
+        except Exception:
+            needs_refresh = True
+
+    if needs_refresh and not current_app.config.get("TESTING"):
+        try:
+            from app.background_updater import update_telemetry_time_once
+            update_telemetry_time_once()
+            latest = get_latest_telemetry(tank_id=tank_id)
+        except Exception:
+            pass
+
     device = get_device_with_status(tank_id) or {
         "device_id": tank_id,
         "device_name": target_tank.get("tank_name", tank_id),

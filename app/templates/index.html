@@ -386,6 +386,26 @@
       const [backupCreating, setBackupCreating] = useState(false);
       const [backupMsg, setBackupMsg] = useState(null);
 
+      // Real-time ticking wall-clock for header (IST)
+      const [currentTimeIST, setCurrentTimeIST] = useState(() => {
+        try {
+          return new Date().toLocaleTimeString('en-US', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true });
+        } catch (e) {
+          return new Date().toLocaleTimeString();
+        }
+      });
+
+      useEffect(() => {
+        const timer = setInterval(() => {
+          try {
+            setCurrentTimeIST(new Date().toLocaleTimeString('en-US', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true }));
+          } catch (e) {
+            setCurrentTimeIST(new Date().toLocaleTimeString());
+          }
+        }, 1000);
+        return () => clearInterval(timer);
+      }, []);
+
       const chartRef = useRef(null);
       const chartInstance = useRef(null);
 
@@ -466,21 +486,24 @@
         );
       }, [history, tableFilter]);
 
-      // Fetch Live Telemetry Data
+      // Fetch Live Telemetry Data and auto-sync history with ZERO page reload
       const fetchLiveData = async () => {
         try {
           const res = await API.getCurrent();
           setData(res);
+          if (res?.tank?.tank_id) {
+            fetchHistory(res.tank.tank_id);
+          }
         } catch (err) {
           console.error('Failed to fetch live water data:', err);
         }
       };
 
-      // Fetch History for Analytics Chart
-      const fetchHistory = async () => {
-        if (!data || !data.tank) return;
+      // Fetch History for Analytics Chart & Tabular View
+      const fetchHistory = async (targetId = null) => {
+        const tId = targetId || data?.tank?.tank_id || 'SV_BLOCK_OVER_TANK';
         try {
-          const res = await API.getTankHistory(data.tank.tank_id, historyRange);
+          const res = await API.getTankHistory(tId, historyRange);
           setHistory(res.data || []);
         } catch (err) {
           console.error('Failed to load history:', err);
@@ -509,22 +532,18 @@
         }
       };
 
-      // Polling effect
+      // Background Polling effect: runs every 25 seconds with ZERO page reload
       useEffect(() => {
         fetchLiveData();
         fetchRecipients();
         fetchMaintenanceStatus();
         const interval = setInterval(() => {
-          if (autoRefresh) fetchLiveData();
-        }, 5000);
+          if (autoRefresh) {
+            fetchLiveData();
+          }
+        }, 25000); // 25-second auto-update in background
         return () => clearInterval(interval);
-      }, [autoRefresh]);
-
-      useEffect(() => {
-        if (data?.tank) {
-          fetchHistory();
-        }
-      }, [data?.tank?.tank_id, historyRange]);
+      }, [autoRefresh, historyRange]);
 
       useEffect(() => {
         if (data?.tank?.total_capacity_litres) {
@@ -742,25 +761,34 @@
 
               {/* Status Controls & Settings */}
               <div className="flex items-center gap-1.5 sm:gap-2.5 shrink-0">
+                {/* Live Wall-Clock (IST) */}
+                <div className="hidden md:flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-mono bg-cyan-50/80 border border-cyan-200 text-cyan-800">
+                  <span className="w-1.5 h-1.5 rounded-full bg-cyan-600 animate-pulse"></span>
+                  <span className="font-bold">{currentTimeIST}</span>
+                  <span className="text-[9px] text-cyan-600 font-bold uppercase">(IST)</span>
+                </div>
+
                 {/* Online Status Pill */}
                 <div className="flex items-center gap-1.5 px-2 sm:px-2.5 py-1 rounded-full text-[10px] sm:text-[11px] font-mono font-medium bg-slate-100 text-slate-700 border border-slate-200">
                   <span className={`w-2 h-2 rounded-full ${isOnline ? 'bg-emerald-500 animate-pulse' : 'bg-slate-400'}`}></span>
                   <span className="hidden xs:inline">{isOnline ? 'Online' : 'Offline'}</span>
+                  <span className="text-[10px] text-slate-400 font-sans hidden lg:inline">• 25s sync</span>
                 </div>
 
                 {/* Auto Refresh Toggle */}
                 <button
+                  type="button"
                   onClick={() => setAutoRefresh(!autoRefresh)}
                   className={`p-1.5 sm:px-2.5 sm:py-1 rounded-lg text-xs font-semibold border transition-all flex items-center gap-1 ${autoRefresh
                       ? 'bg-emerald-50 text-emerald-700 border-emerald-300 hover:bg-emerald-100'
                       : 'bg-slate-100 text-slate-600 border-slate-200 hover:bg-slate-200'
                     }`}
-                  title={autoRefresh ? 'Live Polling Active (5s)' : 'Polling Paused'}
+                  title={autoRefresh ? 'Live Auto-Sync Active (25s) - Zero Page Reload' : 'Live Polling Paused'}
                 >
                   <svg className={`w-3.5 h-3.5 ${autoRefresh ? 'animate-spin' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
                   </svg>
-                  <span className="hidden md:inline">{autoRefresh ? 'Live 5s' : 'Paused'}</span>
+                  <span className="hidden md:inline">{autoRefresh ? 'Live 25s' : 'Paused'}</span>
                 </button>
 
                 {/* Settings Button */}

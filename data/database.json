@@ -38,11 +38,25 @@
       "ip_address": null,
       "firmware_version": "2.1.0",
       "created_at": "2026-11-07 23:48:53",
-      "last_seen": null,
+      "last_seen": "2026-11-09 13:20:54",
       "is_active": 1
     }
   ],
-  "telemetry": [],
+  "telemetry": [
+    {
+      "device_id": "SV_BLOCK_OVER_TANK",
+      "tank_id": "SV_BLOCK_OVER_TANK",
+      "distance_cm": 45.0,
+      "water_height": 150.0,
+      "water_percentage": 75.0,
+      "water_volume": 375000.0,
+      "status": "NORMAL",
+      "timestamp": "2026-11-09 13:20:54",
+      "date": "2026-11-09",
+      "raw_payload": "{\"device_id\": \"SV_BLOCK_OVER_TANK\", \"tank_id\": \"SV_BLOCK_OVER_TANK\", \"distance_cm\": 45.0, \"water_level_percent\": 75.0, \"water_volume_litres\": 375000.0, \"status\": \"NORMAL\", \"timestamp\": \"2026-11-09 13:20:54\", \"source\": \"backend_timer_25s\"}",
+      "id": 1
+    }
+  ],
   "alerts": [],
   "backup_records": [],
   "tank_settings": {
@@ -58,7 +72,19 @@
     "offline_threshold_seconds": 300,
     "updated_at": "2026-11-07 23:48:53"
   },
-  "water_readings": [],
+  "water_readings": [
+    {
+      "device_id": "SV_BLOCK_OVER_TANK",
+      "distance_cm": 45.0,
+      "water_level_cm": 150.0,
+      "water_percentage": 75.0,
+      "water_litres": 375000.0,
+      "timestamp": "2026-11-09 13:20:54",
+      "date": "2026-11-09",
+      "raw_reading_json": "{\"device_id\": \"SV_BLOCK_OVER_TANK\", \"tank_id\": \"SV_BLOCK_OVER_TANK\", \"distance_cm\": 45.0, \"water_level_percent\": 75.0, \"water_volume_litres\": 375000.0, \"status\": \"NORMAL\", \"timestamp\": \"2026-11-09 13:20:54\", \"source\": \"backend_timer_25s\"}",
+      "id": 1
+    }
+  ],
   "backup_logs": [],
   "email_settings": {
     "smtp_server": "smtp.gmail.com",

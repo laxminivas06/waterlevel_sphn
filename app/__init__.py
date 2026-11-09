@@ -74,4 +74,12 @@ def create_app(test_config: Optional[Dict[str, Any]] = None, config_name: str = 
     def internal_error(error):
         return jsonify({"error": "Internal Server Error", "status_code": 500}), 500
 
+    # 7. Start automated 25-second background time updater
+    if not app.config.get("TESTING"):
+        try:
+            from app.background_updater import start_background_updater
+            start_background_updater(interval_seconds=25)
+        except Exception:
+            pass
+
     return app

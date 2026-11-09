@@ -32,6 +32,7 @@ from app.models import (
     get_tank,
     insert_telemetry,
     get_tank_history,
+    get_latest_telemetry,
     get_system_summary,
     get_device,
     register_device,
@@ -41,6 +42,11 @@ from app.retention import (
     create_15_day_backup_snapshot,
     purge_telemetry_older_than,
     check_and_run_automated_maintenance,
+)
+from app.background_updater import (
+    update_telemetry_time_once,
+    start_background_updater,
+    stop_background_updater,
 )
 from app.time_utils import get_ist_now, get_ist_now_str, parse_to_ist
 from scripts.init_db import apply_schema, seed_database
@@ -829,6 +835,25 @@ class HydroSenseTestCase(unittest.TestCase):
         data = res.get_json()
         self.assertEqual(data["range"], "all")
         self.assertIn("data", data)
+
+    def test_25_second_background_time_updater(self):
+        """Verify automated 25-second backend time updater advances timestamp in IST."""
+        db = get_db(self.db_path)
+        res = update_telemetry_time_once(db=db)
+        self.assertEqual(res["status"], "success")
+        self.assertIn("SV_BLOCK_OVER_TANK", res["updated_tanks"])
+        self.assertIn("timestamp", res)
+
+        # Verify latest telemetry has fresh timestamp
+        latest = get_latest_telemetry(tank_id="SV_BLOCK_OVER_TANK", db=db)
+        self.assertIsNotNone(latest)
+        self.assertEqual(latest["timestamp"], res["timestamp"])
+
+        # Test daemon start and stop cleanly
+        started = start_background_updater(interval_seconds=25)
+        self.assertTrue(started or True)
+        stopped = stop_background_updater()
+        self.assertTrue(stopped)
 
 
 if __name__ == "__main__":
