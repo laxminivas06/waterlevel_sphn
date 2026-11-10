@@ -855,6 +855,21 @@ class HydroSenseTestCase(unittest.TestCase):
         stopped = stop_background_updater()
         self.assertTrue(stopped)
 
+    def test_responsive_ui_elements(self):
+        """Verify UI template contains responsive grid classes, xs screen breakpoint, and scroll-safe table."""
+        res = self.client.get("/")
+        self.assertEqual(res.status_code, 200)
+        html = res.get_data(as_text=True)
+        # Check xs screen breakpoint definition
+        self.assertIn("'xs': '420px'", html)
+        # Check balanced responsive card grid (2-col mobile, 6-col tablet, 5-col desktop)
+        self.assertIn("grid grid-cols-2 sm:grid-cols-6 lg:grid-cols-5", html)
+        # Check scroll-safe table wrapper with overflow-x-auto
+        self.assertIn("overflow-x-auto", html)
+        self.assertIn("min-w-[500px]", html)
+        # Check no-scrollbar utility for smooth tab strip on mobile
+        self.assertIn("no-scrollbar", html)
+
 
 if __name__ == "__main__":
     unittest.main()

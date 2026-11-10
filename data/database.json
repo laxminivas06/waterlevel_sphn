@@ -38,7 +38,7 @@
       "ip_address": null,
       "firmware_version": "2.1.0",
       "created_at": "2026-11-07 23:48:53",
-      "last_seen": "2026-11-09 13:38:39",
+      "last_seen": "2026-11-10 17:06:57",
       "is_active": 1
     }
   ],
@@ -81,6 +81,32 @@
       "date": "2026-11-09",
       "raw_payload": "{\"device_id\": \"SV_BLOCK_OVER_TANK\", \"tank_id\": \"SV_BLOCK_OVER_TANK\", \"distance_cm\": 45.0, \"water_level_percent\": 75.0, \"water_volume_litres\": 375000.0, \"status\": \"NORMAL\", \"timestamp\": \"2026-11-09 13:38:39\", \"source\": \"backend_timer_25s\"}",
       "id": 3
+    },
+    {
+      "device_id": "SV_BLOCK_OVER_TANK",
+      "tank_id": "SV_BLOCK_OVER_TANK",
+      "distance_cm": 45.0,
+      "water_height": 150.0,
+      "water_percentage": 75.0,
+      "water_volume": 375000.0,
+      "status": "NORMAL",
+      "timestamp": "2026-11-10 17:04:59",
+      "date": "2026-11-10",
+      "raw_payload": "{\"device_id\": \"SV_BLOCK_OVER_TANK\", \"tank_id\": \"SV_BLOCK_OVER_TANK\", \"distance_cm\": 45.0, \"water_level_percent\": 75.0, \"water_volume_litres\": 375000.0, \"status\": \"NORMAL\", \"timestamp\": \"2026-11-10 17:04:59\", \"source\": \"backend_timer_25s\"}",
+      "id": 4
+    },
+    {
+      "device_id": "SV_BLOCK_OVER_TANK",
+      "tank_id": "SV_BLOCK_OVER_TANK",
+      "distance_cm": 45.0,
+      "water_height": 150.0,
+      "water_percentage": 75.0,
+      "water_volume": 375000.0,
+      "status": "NORMAL",
+      "timestamp": "2026-11-10 17:06:57",
+      "date": "2026-11-10",
+      "raw_payload": "{\"device_id\": \"SV_BLOCK_OVER_TANK\", \"tank_id\": \"SV_BLOCK_OVER_TANK\", \"distance_cm\": 45.0, \"water_level_percent\": 75.0, \"water_volume_litres\": 375000.0, \"status\": \"NORMAL\", \"timestamp\": \"2026-11-10 17:06:57\", \"source\": \"backend_timer_25s\"}",
+      "id": 5
     }
   ],
   "alerts": [],
@@ -131,6 +157,28 @@
       "date": "2026-11-09",
       "raw_reading_json": "{\"device_id\": \"SV_BLOCK_OVER_TANK\", \"tank_id\": \"SV_BLOCK_OVER_TANK\", \"distance_cm\": 45.0, \"water_level_percent\": 75.0, \"water_volume_litres\": 375000.0, \"status\": \"NORMAL\", \"timestamp\": \"2026-11-09 13:38:39\", \"source\": \"backend_timer_25s\"}",
       "id": 3
+    },
+    {
+      "device_id": "SV_BLOCK_OVER_TANK",
+      "distance_cm": 45.0,
+      "water_level_cm": 150.0,
+      "water_percentage": 75.0,
+      "water_litres": 375000.0,
+      "timestamp": "2026-11-10 17:04:59",
+      "date": "2026-11-10",
+      "raw_reading_json": "{\"device_id\": \"SV_BLOCK_OVER_TANK\", \"tank_id\": \"SV_BLOCK_OVER_TANK\", \"distance_cm\": 45.0, \"water_level_percent\": 75.0, \"water_volume_litres\": 375000.0, \"status\": \"NORMAL\", \"timestamp\": \"2026-11-10 17:04:59\", \"source\": \"backend_timer_25s\"}",
+      "id": 4
+    },
+    {
+      "device_id": "SV_BLOCK_OVER_TANK",
+      "distance_cm": 45.0,
+      "water_level_cm": 150.0,
+      "water_percentage": 75.0,
+      "water_litres": 375000.0,
+      "timestamp": "2026-11-10 17:06:57",
+      "date": "2026-11-10",
+      "raw_reading_json": "{\"device_id\": \"SV_BLOCK_OVER_TANK\", \"tank_id\": \"SV_BLOCK_OVER_TANK\", \"distance_cm\": 45.0, \"water_level_percent\": 75.0, \"water_volume_litres\": 375000.0, \"status\": \"NORMAL\", \"timestamp\": \"2026-11-10 17:06:57\", \"source\": \"backend_timer_25s\"}",
+      "id": 5
     }
   ],
   "backup_logs": [],
