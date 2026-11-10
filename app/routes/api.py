@@ -207,7 +207,7 @@ def list_tanks_v1():
     for t in tanks:
         tank_id = t["tank_id"]
         latest = get_latest_telemetry(tank_id=tank_id)
-        offline_thresh = t.get("offline_threshold_seconds", 300)
+        offline_thresh = t.get("offline_threshold_seconds", 60)
 
         # Find matching device
         devices = get_all_devices()
@@ -639,29 +639,9 @@ def legacy_water_level_current():
     tank_id = target_tank.get("tank_id", "SV_BLOCK_OVER_TANK")
     latest = get_latest_telemetry(tank_id=tank_id)
 
-    # 25-second backend freshness check: keep timestamp continuously up-to-date
-    now = get_ist_now()
-    needs_refresh = False
-    if not latest or not latest.get("timestamp"):
-        needs_refresh = True
-    else:
-        try:
-            ts_clean = str(latest["timestamp"]).replace("T", " ")[:19]
-            ts_dt = datetime.strptime(ts_clean, "%Y-%m-%d %H:%M:%S")
-            if (now - ts_dt).total_seconds() >= 25.0:
-                needs_refresh = True
-        except Exception:
-            needs_refresh = True
-
-    if needs_refresh and not current_app.config.get("TESTING"):
-        try:
-            from app.background_updater import update_telemetry_time_once
-            update_telemetry_time_once(db=get_db())
-            latest = get_latest_telemetry(tank_id=tank_id)
-        except Exception:
-            pass
-
-    device = get_device_with_status(tank_id) or {
+    # Evaluate physical ESP hardware connectivity (60-second default threshold)
+    offline_thresh = int(target_tank.get("offline_threshold_seconds") or current_app.config.get("OFFLINE_THRESHOLD_SECONDS", 60))
+    device = get_device_with_status(tank_id, offline_threshold=offline_thresh) or {
         "device_id": tank_id,
         "device_name": target_tank.get("tank_name", tank_id),
         "status": "offline",

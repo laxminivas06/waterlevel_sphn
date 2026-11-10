@@ -28,8 +28,8 @@ SECRET_KEY = os.environ.get("SECRET_KEY", "water_leveler_default_secret_key_2026
 DEFAULT_DEVICE_ID = os.environ.get("DEFAULT_DEVICE_ID", "esp32_tank_01")
 DEFAULT_API_KEY = os.environ.get("DEFAULT_API_KEY", "water_secret_key_2026")
 
-# Telemetry and sensor timeouts
-OFFLINE_THRESHOLD_SECONDS = int(os.environ.get("OFFLINE_THRESHOLD_SECONDS", 300))
+# Telemetry and sensor timeouts (60s default for 10s-interval IoT hardware)
+OFFLINE_THRESHOLD_SECONDS = int(os.environ.get("OFFLINE_THRESHOLD_SECONDS", 60))
 DEVICE_TIMEOUT_SECONDS = OFFLINE_THRESHOLD_SECONDS
 
 

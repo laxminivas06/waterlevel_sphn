@@ -61,7 +61,7 @@ def create_or_update_tank(tank_data: Dict[str, Any], db: Optional[Any] = None) -
     crit_low_pct = float(tank_data.get("critical_low_percent") or 10.0)
     low_pct = float(tank_data.get("low_percent") or 25.0)
     high_pct = float(tank_data.get("high_percent") or 85.0)
-    offline_thresh = int(tank_data.get("offline_threshold_seconds") or 300)
+    offline_thresh = int(tank_data.get("offline_threshold_seconds") or 60)
 
     length_cm = float(tank_data["length_cm"]) if tank_data.get("length_cm") is not None else None
     width_cm = float(tank_data["width_cm"]) if tank_data.get("width_cm") is not None else None
@@ -443,7 +443,7 @@ def register_device(
         return copy.deepcopy(new_dev)
 
 
-def get_device_with_status(device_id: str, offline_threshold: int = 300, db: Optional[Any] = None) -> Optional[Dict[str, Any]]:
+def get_device_with_status(device_id: str, offline_threshold: int = 60, db: Optional[Any] = None) -> Optional[Dict[str, Any]]:
     """Calculates online/offline state and seconds_since_last_seen."""
     database = db if isinstance(db, JsonDatabase) else get_db()
     dev = get_device(device_id, db=database)
@@ -562,15 +562,17 @@ def insert_telemetry(payload: Dict[str, Any], db: Optional[Any] = None) -> Dict[
     }
     reading_id = database.insert("telemetry", record)
 
-    # Update device last_seen and ip_address
-    ip_addr = payload.get("ip_address")
-    devices = database.get("devices", [])
-    for d in devices:
-        if d.get("device_id") == device_id:
-            d["last_seen"] = timestamp
-            if ip_addr:
-                d["ip_address"] = ip_addr
-            break
+    # Update device last_seen and ip_address ONLY for genuine hardware transmissions
+    source = payload.get("source")
+    if source != "backend_timer_25s":
+        ip_addr = payload.get("ip_address")
+        devices = database.get("devices", [])
+        for d in devices:
+            if d.get("device_id") == device_id:
+                d["last_seen"] = timestamp
+                if ip_addr:
+                    d["ip_address"] = ip_addr
+                break
 
     # Mirror to legacy water_readings
     legacy_record = {
@@ -1026,7 +1028,7 @@ def get_tank_settings(db: Optional[Any] = None) -> Dict[str, Any]:
         "warning_low_percent": 25.0,
         "critical_low_threshold_percent": 10.0,
         "warning_normal_percent": 85.0,
-        "offline_threshold_seconds": 300,
+        "offline_threshold_seconds": 60,
     }
 
 

@@ -72,7 +72,7 @@ def get_default_seed_data() -> Dict[str, Any]:
                 "critical_low_percent": 10.0,
                 "low_percent": 25.0,
                 "high_percent": 85.0,
-                "offline_threshold_seconds": 300,
+                "offline_threshold_seconds": 60,
                 "created_at": now_ts,
                 "updated_at": now_ts,
             },
@@ -103,7 +103,7 @@ def get_default_seed_data() -> Dict[str, Any]:
             "warning_normal_percent": 85.0,
             "low_threshold_percent": 25.0,
             "critical_low_threshold_percent": 10.0,
-            "offline_threshold_seconds": 300,
+            "offline_threshold_seconds": 60,
             "updated_at": now_ts,
         },
         "email_settings": {

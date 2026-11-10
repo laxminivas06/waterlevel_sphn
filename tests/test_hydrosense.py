@@ -870,6 +870,37 @@ class HydroSenseTestCase(unittest.TestCase):
         # Check no-scrollbar utility for smooth tab strip on mobile
         self.assertIn("no-scrollbar", html)
 
+    def test_esp_hardware_offline_and_online_state(self):
+        """Verify device correctly reports offline when ESP is turned off (>60s) and switches to online on ESP transmission."""
+        db = get_db(self.db_path)
+        # 1. Simulate ESP turned off (last_seen set to 3 minutes ago)
+        old_time = (datetime.now() - timedelta(seconds=180)).strftime("%Y-%m-%d %H:%M:%S")
+        devices = db.get("devices", [])
+        for d in devices:
+            if d.get("device_id") == "SV_BLOCK_OVER_TANK":
+                d["last_seen"] = old_time
+        db.save()
+
+        # Check /api/water-level/current reflects offline status without faking
+        res_off = self.client.get("/api/water-level/current")
+        self.assertEqual(res_off.status_code, 200)
+        data_off = res_off.get_json()
+        self.assertFalse(data_off["is_online"])
+        self.assertEqual(data_off["device"]["status"], "offline")
+        self.assertGreaterEqual(data_off["device"]["seconds_since_last_seen"], 60)
+
+        # 2. Simulate ESP turning ON and transmitting ultrasonic reading
+        tx_res = self.client.get("/api/tanks?tanks=SV_BLOCK_OVER_TANK:65.0")
+        self.assertEqual(tx_res.status_code, 200)
+
+        # Check /api/water-level/current immediately reflects online state
+        res_on = self.client.get("/api/water-level/current")
+        self.assertEqual(res_on.status_code, 200)
+        data_on = res_on.get_json()
+        self.assertTrue(data_on["is_online"])
+        self.assertEqual(data_on["device"]["status"], "online")
+        self.assertLessEqual(data_on["device"]["seconds_since_last_seen"], 5)
+
 
 if __name__ == "__main__":
     unittest.main()
